@@ -6,19 +6,29 @@ import sys
 import urllib.request
 from pathlib import Path
 
-BASE = "https://raw.githubusercontent.com/gumivocaloid97-ai/bot-pudin/main"
+REPO = "gumivocaloid97-ai/bot-pudin"
+API = f"https://api.github.com/repos/{REPO}/contents"
+CRUDO = f"https://raw.githubusercontent.com/{REPO}/main"
 ARCHIVOS = ("bot.py", "musica.py", "niveles.py", "salud.py", "actualizar.py")
 ESPERA = 15
 
 CARPETA = Path(__file__).resolve().parent
 VERSION_LOCAL = CARPETA / "version.txt"
-CABECERAS = {"User-Agent": "BotPudin (https://github.com/gumivocaloid97-ai/bot-pudin)"}
+AGENTE = f"BotPudin (https://github.com/{REPO})"
+
+
+def _bajar(url: str, extra: dict) -> bytes:
+    pedido = urllib.request.Request(url, headers={"User-Agent": AGENTE, **extra})
+    with urllib.request.urlopen(pedido, timeout=ESPERA) as respuesta:
+        return respuesta.read()
 
 
 def _descargar(nombre: str) -> bytes:
-    pedido = urllib.request.Request(f"{BASE}/{nombre}", headers=CABECERAS)
-    with urllib.request.urlopen(pedido, timeout=ESPERA) as respuesta:
-        return respuesta.read()
+    # la API responde al instante; el CDN de raw tarda minutos en refrescar
+    try:
+        return _bajar(f"{API}/{nombre}?ref=main", {"Accept": "application/vnd.github.raw"})
+    except Exception:
+        return _bajar(f"{CRUDO}/{nombre}", {})
 
 
 def buscar() -> bool:
