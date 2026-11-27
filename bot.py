@@ -428,6 +428,7 @@ async def comando_panel(interaction: discord.Interaction) -> None:
     rep = reproductor_de(interaction.guild)
     rep.canal_texto = interaction.channel
     rep.panel = None
+    rep.panel_donadores = None
     musica.guardar_canal_panel(interaction.guild.id, interaction.channel.id)
     await interaction.response.send_message(
         f"Listo. La tarjeta de musica va a aparecer en {interaction.channel.mention}, "
