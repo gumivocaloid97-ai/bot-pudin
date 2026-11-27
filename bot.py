@@ -365,6 +365,38 @@ async def comando_version(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+@tree.command(name="actualizar", description="Busca actualizaciones del bot ahora mismo")
+@app_commands.default_permissions(administrator=True)
+async def comando_actualizar(interaction: discord.Interaction) -> None:
+    await interaction.response.defer(ephemeral=True)
+    local = actualizar.version_local()
+    try:
+        remota = await asyncio.to_thread(actualizar.version_remota)
+    except Exception as error:
+        await interaction.followup.send(
+            f"**No pude consultar GitHub**\nVersion actual: `{local}`\n"
+            f"Error: `{error!r}`",
+            ephemeral=True,
+        )
+        return
+    if remota == local:
+        await interaction.followup.send(f"Ya estas al dia: `{local}`", ephemeral=True)
+        return
+    aplicado = await asyncio.to_thread(actualizar.buscar)
+    if not aplicado:
+        await interaction.followup.send(
+            f"Hay una version nueva (`{remota}`) pero no pude instalarla. "
+            "Fijate el mensaje en la consola del bot.",
+            ephemeral=True,
+        )
+        return
+    await interaction.followup.send(f"Actualizado a `{remota}`. Reiniciando...", ephemeral=True)
+    for rep in reproductores.values():
+        rep.guardar_estado()
+    await client.close()
+    actualizar.reiniciar()
+
+
 @tree.command(name="nivel", description="Muestra tu nivel, tu XP y tu puesto en el servidor")
 @app_commands.describe(usuario="Consultar el nivel de otra persona")
 async def comando_nivel(interaction: discord.Interaction, usuario: discord.Member | None = None) -> None:
