@@ -30,17 +30,19 @@ def grupo_de(miembro: discord.Member) -> str | None:
 def embed_panel() -> discord.Embed:
     lineas = [
         "Para cuidar a todos, necesitamos saber quién es mayor y quién es menor.",
-        "",
-        "Elegí tu grupo. Es un solo clic y no se lo contamos a nadie más.",
+        "Elegí tu grupo. Es un clic y queda marcado en tu perfil.",
         "",
         "**🔞 Soy mayor de 18**",
-        "Te habilita el canal de adultos.",
+        "Quedás marcado como adulto. Se ve en la lista de miembros.",
         "",
         "**🧒 Soy menor de 18**",
-        "Te mantiene fuera de los canales de adultos.",
+        "Quedás marcado como menor. Se ve en la lista de miembros.",
         "",
-        "Si te equivocás, avisale al staff y te lo cambian.",
-        "Los datos de edad no se guardan en ningún lado: solo queda el rol.",
+        "**Sean honestos con la edad.**",
+        "Si mentís y se descubre, hay sanción o ban directo.",
+        "",
+        "Si te equivocaste, avisale al staff y te lo cambian.",
+        "No se guarda ningún dato: solo queda el rol.",
     ]
     return discord.Embed(
         title="✅ Tu edad",
