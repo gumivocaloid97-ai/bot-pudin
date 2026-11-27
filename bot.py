@@ -1158,6 +1158,8 @@ async def comando_probar(interaction: discord.Interaction) -> None:
 
 
 if __name__ == "__main__":
+    if actualizar.reparar():
+        actualizar.reiniciar()
     if actualizar.buscar():
         actualizar.reiniciar()
     salud.iniciar()
