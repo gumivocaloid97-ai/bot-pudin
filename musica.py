@@ -264,6 +264,7 @@ class SaltoSelect(discord.ui.Select):
             return
         await interaction.response.defer()
         await self.reproductor.saltar_a(float(self.values[0]))
+        await self.panel.refrescar(interaction)
 
 
 class VolumenSelect(discord.ui.Select):
@@ -293,6 +294,7 @@ class VolumenSelect(discord.ui.Select):
         await interaction.response.defer()
         self.reproductor.fijar_volumen(float(self.values[0]))
         await self.reproductor.actualizar_panel()
+        await self.panel.refrescar(interaction)
 
 
 class SaltoBoton(discord.ui.Button):
@@ -314,19 +316,33 @@ class SaltoBoton(discord.ui.Button):
             return
         await interaction.response.defer()
         await self.panel.reproductor.saltar_a(self.posicion)
+        await self.panel.refrescar(interaction)
 
 
 class Panel(discord.ui.View):
     """Controles de musica."""
 
-    def __init__(self, reproductor: "Reproductor") -> None:
+    def __init__(self, reproductor: "Reproductor", efimero: bool = False) -> None:
         super().__init__(timeout=None)
         self.reproductor = reproductor
+        self.efimero = efimero
         self.add_item(SaltoSelect(self))
         self.add_item(VolumenSelect(self))
         self.posiciones = [SaltoBoton(self, indice) for indice in range(5)]
         for boton in self.posiciones:
             self.add_item(boton)
+
+    async def refrescar(self, interaction: discord.Interaction) -> None:
+        """Mantiene al dia el panel privado despues de cada boton."""
+        if not self.efimero:
+            return
+        self.reproductor._ajustar_vista(self)
+        try:
+            await interaction.edit_original_response(
+                content=self.reproductor.texto_panel(), view=self
+            )
+        except discord.HTTPException:
+            pass
 
     async def puede_usar(self, interaction: discord.Interaction) -> bool:
         privado = getattr(interaction.guild, "id", None) in GUILDS_PRIVADOS
@@ -349,6 +365,7 @@ class Panel(discord.ui.View):
             return
         await interaction.response.defer()
         await self.reproductor.alternar_pausa()
+        await self.refrescar(interaction)
 
     @discord.ui.button(label="-30s", emoji="⏪", style=discord.ButtonStyle.secondary, custom_id="pudin_atras", row=0)
     async def atras(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -356,6 +373,7 @@ class Panel(discord.ui.View):
             return
         await interaction.response.defer()
         await self.reproductor.mover(-30)
+        await self.refrescar(interaction)
 
     @discord.ui.button(label="+30s", emoji="⏩", style=discord.ButtonStyle.secondary, custom_id="pudin_adelante", row=0)
     async def adelante(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -363,6 +381,7 @@ class Panel(discord.ui.View):
             return
         await interaction.response.defer()
         await self.reproductor.mover(30)
+        await self.refrescar(interaction)
 
     @discord.ui.button(emoji="⏹️", style=discord.ButtonStyle.danger, custom_id="pudin_parar", row=0)
     async def parar(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -370,6 +389,7 @@ class Panel(discord.ui.View):
             return
         await interaction.response.defer()
         await self.reproductor.detener()
+        await self.refrescar(interaction)
 
     @discord.ui.button(label="Cola", emoji="📜", style=discord.ButtonStyle.secondary, custom_id="pudin_cola", row=3)
     async def cola(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -383,6 +403,7 @@ class Panel(discord.ui.View):
             return
         await interaction.response.defer()
         await self.reproductor.saltar()
+        await self.refrescar(interaction)
 
 
 class Reproductor:
@@ -702,23 +723,29 @@ class Reproductor:
         return opciones
 
     def _ajustar_botones(self) -> None:
-        pausa = discord.utils.get(self.vista.children, custom_id="pudin_pausa")
+        self._ajustar_vista(self.vista)
+
+    def _ajustar_vista(self, vista: "Panel") -> None:
+        pausa = discord.utils.get(vista.children, custom_id="pudin_pausa")
         if pausa is not None:
             en_pausa = bool(self.voz and self.voz.is_paused())
             pausa.emoji = "▶️" if en_pausa else "⏸️"
-        salto = discord.utils.get(self.vista.children, custom_id="pudin_salto")
+        salto = discord.utils.get(vista.children, custom_id="pudin_salto")
         if salto is not None:
             salto.options = self._opciones_salto()
         posiciones = self._posiciones()
-        for boton in self.vista.posiciones:
+        for boton in vista.posiciones:
             destino = posiciones[boton.indice]
             boton.posicion = destino
             boton.label = mmss(destino) if self.actual and self.actual.duracion else "--:--"
             boton.disabled = not (self.actual and self.actual.duracion)
-        volumen = discord.utils.get(self.vista.children, custom_id="pudin_volumen")
+        volumen = discord.utils.get(vista.children, custom_id="pudin_volumen")
         if volumen is not None:
             for opcion in volumen.options:
                 opcion.default = abs(float(opcion.value) - self.volumen) < 0.01
+
+    def texto_panel(self) -> str:
+        return self._texto_panel()
 
     def _guild_id(self) -> int | None:
         guild = getattr(self.canal_texto, "guild", None)
