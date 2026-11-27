@@ -8,6 +8,7 @@ import os
 import shlex
 import shutil
 import tempfile
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +35,23 @@ COOKIES = Path(__file__).resolve().parent / "cookies.txt"
 # Canal fijo donde vive la tarjeta de musica (se configura con /panel).
 ARCHIVO_PANEL = Path(__file__).resolve().parent / "panel.txt"
 
+# Ids de las tarjetas publicadas, para editarlas en vez de duplicarlas al reiniciar.
+ARCHIVO_PANELES = Path(__file__).resolve().parent / "paneles.json"
+
+
+def _leer_paneles() -> dict:
+    try:
+        return json.loads(ARCHIVO_PANELES.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _guardar_paneles(datos: dict) -> None:
+    try:
+        ARCHIVO_PANELES.write_text(json.dumps(datos), encoding="utf-8")
+    except OSError:
+        pass
+
 OPCIONES_BUSQUEDA = {
     "quiet": True,
     "no_warnings": True,
@@ -58,6 +76,39 @@ class Pista:
     pedido_por: str = ""
     url_directa: str | None = None
     cabeceras: dict = field(default_factory=dict)
+    duracion: float | None = None
+
+
+def mmss(segundos: float | None) -> str:
+    if not segundos or segundos <= 0:
+        return "--:--"
+    total = int(segundos)
+    horas, resto = divmod(total, 3600)
+    minutos, segs = divmod(resto, 60)
+    if horas:
+        return f"{horas}:{minutos:02d}:{segs:02d}"
+    return f"{minutos}:{segs:02d}"
+
+
+def es_donador(miembro: discord.abc.User) -> bool:
+    permisos = getattr(miembro, "guild_permissions", None)
+    if permisos is not None and permisos.administrator:
+        return True
+    guild = getattr(miembro, "guild", None)
+    if guild is not None and getattr(guild, "owner_id", None) == getattr(miembro, "id", None):
+        return True
+    roles = getattr(miembro, "roles", ())
+    return any("donador" in rol.name.lower() for rol in roles)
+
+
+def canal_donadores(guild: discord.Guild | None) -> discord.TextChannel | None:
+    """Canal privado de donadores: ahi van los botones de musica."""
+    if guild is None:
+        return None
+    for canal in guild.text_channels:
+        if "donador" in canal.name.lower():
+            return canal
+    return None
 
 
 def ruta_ffmpeg() -> str | None:
@@ -168,13 +219,19 @@ def es_lista(consulta: str) -> bool:
 
 
 class Panel(discord.ui.View):
-    """Botones de pausa, siguiente y detener."""
+    """Controles de musica. Solo los ve y los usa el rol Donador."""
 
     def __init__(self, reproductor: "Reproductor") -> None:
         super().__init__(timeout=None)
         self.reproductor = reproductor
 
-    async def _hay_voz(self, interaction: discord.Interaction) -> bool:
+    async def _puede_usar(self, interaction: discord.Interaction) -> bool:
+        if not es_donador(interaction.user):
+            await interaction.response.send_message(
+                "Los botones son para 💎 Donador. Igual podes pedir temas con /play.",
+                ephemeral=True,
+            )
+            return False
         if interaction.user.voice is None or interaction.user.voice.channel is None:
             await interaction.response.send_message(
                 "Entra a un canal de voz para usar los controles.", ephemeral=True
@@ -182,26 +239,41 @@ class Panel(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(emoji="⏯️", style=discord.ButtonStyle.primary, custom_id="pudin_pausa")
+    @discord.ui.button(emoji="⏯️", style=discord.ButtonStyle.primary, custom_id="pudin_pausa", row=0)
     async def pausar(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await self._hay_voz(interaction):
+        if not await self._puede_usar(interaction):
             return
         await interaction.response.defer()
         await self.reproductor.alternar_pausa()
 
-    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="pudin_siguiente")
+    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="pudin_siguiente", row=0)
     async def siguiente(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await self._hay_voz(interaction):
+        if not await self._puede_usar(interaction):
             return
         await interaction.response.defer()
         await self.reproductor.saltar()
 
-    @discord.ui.button(emoji="⏹️", style=discord.ButtonStyle.danger, custom_id="pudin_parar")
+    @discord.ui.button(emoji="⏹️", style=discord.ButtonStyle.danger, custom_id="pudin_parar", row=0)
     async def parar(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await self._hay_voz(interaction):
+        if not await self._puede_usar(interaction):
             return
         await interaction.response.defer()
         await self.reproductor.detener()
+
+    @discord.ui.button(label="Cola", emoji="📜", style=discord.ButtonStyle.secondary, custom_id="pudin_cola", row=1)
+    async def cola(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await self._puede_usar(interaction):
+            return
+        await interaction.response.send_message(self.reproductor.texto_cola(), ephemeral=True)
+
+    @discord.ui.button(label="100%", emoji="🔊", style=discord.ButtonStyle.secondary, custom_id="pudin_volumen", row=1)
+    async def volumen(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await self._puede_usar(interaction):
+            return
+        await interaction.response.defer()
+        nuevo = await self.reproductor.cambiar_volumen()
+        button.label = f"{int(nuevo * 100)}%"
+        await self.reproductor.actualizar_panel()
 
 
 class Reproductor:
@@ -215,7 +287,12 @@ class Reproductor:
         self.canal_voz: discord.VoiceChannel | None = None
         self.canal_texto: discord.abc.Messageable | None = None
         self.panel: discord.Message | None = None
+        self.panel_donadores: discord.Message | None = None
         self.vista = Panel(self)
+        self.fuente: discord.PCMVolumeTransformer | None = None
+        self.volumen = 1.0
+        self.inicio: float | None = None
+        self.pausado_desde: float | None = None
         self._candado = asyncio.Lock()
         self._descargando = False
         self._avanzando = False
@@ -239,13 +316,16 @@ class Reproductor:
                         url = entrada.get("url") or entrada.get("webpage_url")
                         if not url:
                             continue
-                        pistas.append(Pista(entrada.get("title") or "Sin titulo", url))
+                        pistas.append(
+                            Pista(entrada.get("title") or "Sin titulo", url,
+                                  duracion=entrada.get("duration"))
+                        )
                     return pistas
 
                 if info.get("entries"):
                     info = next((e for e in info["entries"] if e), None) or {}
                 url = info.get("webpage_url") or info.get("url") or consulta
-                return [Pista(info.get("title") or consulta, url)]
+                return [Pista(info.get("title") or consulta, url, duracion=info.get("duration"))]
 
         return await asyncio.to_thread(_extraer)
 
@@ -260,9 +340,10 @@ class Reproductor:
         if pista.url_directa or (pista.archivo and pista.archivo.exists()):
             return
         ganadora: dict | None = None
+        duracion: float | None = None
 
         def _bajar() -> tuple[str | None, Path | None, dict]:
-            nonlocal ganadora
+            nonlocal ganadora, duracion
             ultimo: Exception | None = None
             for extra in self._orden_variantes():
                 opciones = dict(OPCIONES_DESCARGA)
@@ -275,6 +356,7 @@ class Reproductor:
                         info = ydl.extract_info(pista.consulta, download=False)
                         if info.get("entries"):
                             info = info["entries"][0]
+                        duracion = info.get("duration")
                         if info.get("is_live"):
                             # Una transmision en vivo nunca termina: se transmite, no se descarga.
                             return info.get("url"), None, info.get("http_headers") or {}
@@ -294,6 +376,8 @@ class Reproductor:
             raise RuntimeError("No pude descargar el audio")
 
         pista.url_directa, pista.archivo, pista.cabeceras = await asyncio.to_thread(_bajar)
+        if pista.duracion is None and duracion:
+            pista.duracion = duracion
         if ganadora is not None and ganadora != self._variante_ok:
             self._variante_ok = ganadora
             log.info("Recordando la variante que funciona: %s", ganadora)
@@ -356,6 +440,22 @@ class Reproductor:
 
     # panel
 
+    def _transcurrido(self) -> float:
+        if self.inicio is None:
+            return 0.0
+        fin = self.pausado_desde if self.pausado_desde is not None else time.monotonic()
+        return max(0.0, fin - self.inicio)
+
+    def _linea_progreso(self) -> str | None:
+        if self.actual is None or not self.actual.duracion:
+            return None
+        total = self.actual.duracion
+        actual = min(self._transcurrido(), total)
+        tramos = 12
+        lleno = int(tramos * actual / total)
+        barra = "▬" * lleno + "🔘" + "▬" * max(0, tramos - lleno)
+        return f"{barra} `{mmss(actual)} / {mmss(total)}`"
+
     def _texto_panel(self) -> str:
         if self.actual is None:
             return "🎵 **Sin reproduccion**"
@@ -368,40 +468,120 @@ class Reproductor:
         else:
             icono = "🎵"
         lineas = [f"{icono} **{self.actual.titulo}**"]
+        progreso = self._linea_progreso()
+        if progreso:
+            lineas.append(progreso)
         if self.actual.pedido_por:
             lineas.append(f"Pedido por {self.actual.pedido_por}")
         if self.cola:
             lineas.append(f"En cola: {len(self.cola)}")
         return "\n".join(lineas)
 
-    def _ajustar_boton_pausa(self) -> None:
-        boton = discord.utils.get(self.vista.children, custom_id="pudin_pausa")
-        if boton is not None:
+    def texto_cola(self) -> str:
+        if not self.cola:
+            return "La cola esta vacia."
+        lineas = []
+        for numero, pista in enumerate(list(self.cola)[:10], 1):
+            duracion = f" `{mmss(pista.duracion)}`" if pista.duracion else ""
+            lineas.append(f"{numero}. **{pista.titulo}**{duracion}")
+        resto = len(self.cola) - 10
+        if resto > 0:
+            lineas.append(f"... y {resto} mas")
+        return "\n".join(lineas)
+
+    async def cambiar_volumen(self) -> float:
+        self.volumen = {1.0: 1.5, 1.5: 0.5, 0.5: 1.0}.get(round(self.volumen, 1), 1.0)
+        if self.fuente is not None:
+            self.fuente.volume = self.volumen
+        return self.volumen
+
+    def _ajustar_botones(self) -> None:
+        pausa = discord.utils.get(self.vista.children, custom_id="pudin_pausa")
+        if pausa is not None:
             en_pausa = bool(self.voz and self.voz.is_paused())
-            boton.emoji = "▶️" if en_pausa else "⏸️"
+            pausa.emoji = "▶️" if en_pausa else "⏸️"
+        volumen = discord.utils.get(self.vista.children, custom_id="pudin_volumen")
+        if volumen is not None:
+            volumen.label = f"{int(self.volumen * 100)}%"
+
+    def _guild_id(self) -> int | None:
+        guild = getattr(self.canal_texto, "guild", None)
+        return getattr(guild, "id", None)
+
+    def _recordar(self, clave: str, mensaje: discord.Message | None) -> None:
+        guild = self._guild_id()
+        if guild is None:
+            return
+        datos = _leer_paneles()
+        actual = datos.setdefault(str(guild), {})
+        if mensaje is None:
+            actual.pop(clave, None)
+        else:
+            actual[clave] = {"canal": mensaje.channel.id, "mensaje": mensaje.id}
+        _guardar_paneles(datos)
+
+    async def _recuperar(self, clave: str) -> discord.Message | None:
+        guild = self._guild_id()
+        if guild is None or self.client is None:
+            return None
+        datos = _leer_paneles().get(str(guild), {}).get(clave)
+        if not datos:
+            return None
+        canal = self.client.get_channel(datos["canal"])
+        if canal is None:
+            return None
+        try:
+            return await canal.fetch_message(datos["mensaje"])
+        except discord.HTTPException:
+            return None
+
+    async def _editar(self, mensaje: discord.Message | None, texto: str, vista) -> discord.Message | None:
+        if mensaje is None:
+            return None
+        try:
+            return await mensaje.edit(content=texto, view=vista)
+        except discord.NotFound:
+            return None
+        except discord.HTTPException:
+            return mensaje
 
     async def actualizar_panel(self) -> None:
-        if self.panel is None:
-            return
-        self._ajustar_boton_pausa()
-        try:
-            self.panel = await self.panel.edit(content=self._texto_panel(), view=self.vista)
-        except discord.NotFound:
-            self.panel = None
-        except discord.HTTPException:
-            pass
+        self._ajustar_botones()
+        texto = self._texto_panel()
+        self.panel = await self._editar(self.panel, texto, None)
+        self.panel_donadores = await self._editar(self.panel_donadores, texto, self.vista)
+        self._recordar("publico", self.panel)
+        self._recordar("donadores", self.panel_donadores)
 
     async def _mostrar_panel(self) -> None:
         if self.canal_texto is None:
             return
+        self._ajustar_botones()
+        texto = self._texto_panel()
         if self.panel is None:
-            self._ajustar_boton_pausa()
+            self.panel = await self._recuperar("publico")
+        if self.panel is None:
             try:
-                self.panel = await self.canal_texto.send(self._texto_panel(), view=self.vista)
+                self.panel = await self.canal_texto.send(texto)
             except discord.HTTPException:
                 pass
         else:
-            await self.actualizar_panel()
+            self.panel = await self._editar(self.panel, texto, None)
+        self._recordar("publico", self.panel)
+
+        canal = canal_donadores(getattr(self.canal_texto, "guild", None))
+        if canal is None:
+            return
+        if self.panel_donadores is None:
+            self.panel_donadores = await self._recuperar("donadores")
+        if self.panel_donadores is None:
+            try:
+                self.panel_donadores = await canal.send(texto, view=self.vista)
+            except discord.HTTPException as error:
+                log.warning("No pude publicar los controles de donadores: %s", error)
+        else:
+            self.panel_donadores = await self._editar(self.panel_donadores, texto, self.vista)
+        self._recordar("donadores", self.panel_donadores)
 
     # reproduccion
 
@@ -495,7 +675,10 @@ class Reproductor:
                     )
 
                 self._cargando = False
-                self.voz.play(fuente, after=self._al_terminar)
+                self.fuente = discord.PCMVolumeTransformer(fuente, volume=self.volumen)
+                self.inicio = time.monotonic()
+                self.pausado_desde = None
+                self.voz.play(self.fuente, after=self._al_terminar)
                 log.info("Reproduciendo: %s", pista.titulo)
                 await self._mostrar_panel()
                 self.client.loop.create_task(self._precargar())
@@ -528,10 +711,14 @@ class Reproductor:
             return "No hay nada sonando."
         if self.voz.is_paused():
             self.voz.resume()
+            if self.pausado_desde is not None and self.inicio is not None:
+                self.inicio += time.monotonic() - self.pausado_desde
+            self.pausado_desde = None
             await self.actualizar_panel()
             return "▶️ Reanudado."
         if self.voz.is_playing():
             self.voz.pause()
+            self.pausado_desde = time.monotonic()
             await self.actualizar_panel()
             return "⏸️ En pausa."
         return "No hay nada sonando."
@@ -564,6 +751,9 @@ class Reproductor:
             self.voz.stop()
         self.actual = None
         self._borrar_actual()
+        self.fuente = None
+        self.inicio = None
+        self.pausado_desde = None
         await self.actualizar_panel()
 
     async def desconectar(self) -> None:
@@ -573,3 +763,7 @@ class Reproductor:
         self.voz = None
         self.canal_voz = None
         self.panel = None
+        self.panel_donadores = None
+        self.fuente = None
+        self.inicio = None
+        self.pausado_desde = None
