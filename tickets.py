@@ -143,11 +143,15 @@ def embed_panel() -> discord.Embed:
         title="💎 Donaciones",
         description=(
             "El servidor se mantiene con las donaciones de la gente que lo banca.\n\n"
-            "**Qué te da ser Donador:**\n"
+            "**💎 Donador — 1 mes**\n"
             "• Canal 💎・donadores y 🔊・donadores\n"
-            "• Radio Pudin y el panel de música completo\n"
+            "• Radio Pudin y el panel completo\n"
             "• Apodo con emoji\n"
             "• Sorteos exclusivos\n\n"
+            "**🎨 Color de nombre — 2 meses seguidos**\n"
+            "• Elegís el color con el que aparecés\n\n"
+            "**👑 Color dorado — 5 meses seguidos**\n"
+            "• El color exclusivo, solo para los que no cortan\n\n"
             "Tocá el botón y te abro un canal privado para hablar."
         ),
         color=0xF1C40F,
