@@ -675,6 +675,30 @@ def reproductor_de(guild: discord.Guild) -> musica.Reproductor:
     return reproductores[guild.id]
 
 
+async def mandar_controles(interaction: discord.Interaction, silencioso: bool = False) -> None:
+    """Panel de musica privado: solo lo ve quien lo pide."""
+    guild = interaction.guild
+    if guild is None:
+        return
+    if guild.id in musica.GUILDS_PRIVADOS and not musica.es_donador(interaction.user):
+        if not silencioso:
+            await interaction.followup.send(
+                "Los botones son para 💎 Donador. Igual podes pedir temas con /play.",
+                ephemeral=True,
+            )
+        return
+    rep = reproductor_de(guild)
+    vista = musica.Panel(rep, efimero=True)
+    rep._ajustar_vista(vista)
+    await interaction.followup.send(content=rep.texto_panel(), view=vista, ephemeral=True)
+
+
+@tree.command(name="controles", description="Panel de musica privado con los botones")
+async def comando_controles(interaction: discord.Interaction) -> None:
+    await interaction.response.defer(ephemeral=True)
+    await mandar_controles(interaction)
+
+
 @tree.command(name="panel", description="Fija este canal para la tarjeta de musica")
 @app_commands.default_permissions(manage_guild=True)
 async def comando_panel(interaction: discord.Interaction) -> None:
@@ -725,6 +749,7 @@ async def comando_play(interaction: discord.Interaction, consulta: str) -> None:
     else:
         texto = f"➕ {pistas[0].titulo}"
     await interaction.followup.send(texto, ephemeral=True)
+    await mandar_controles(interaction, silencioso=True)
 
 
 @tree.command(name="cola", description="Muestra lo que esta sonando y lo que sigue")
@@ -895,7 +920,7 @@ async def comando_usuario(interaction: discord.Interaction, usuario: discord.Mem
 async def comando_ayuda(interaction: discord.Interaction) -> None:
     grupos = {
         "Niveles": "/nivel · /top",
-        "Musica": "/play · /cola · /pausa · /saltar · /parar · /salir · /panel",
+        "Musica": "/play · /controles · /cola · /pausa · /saltar · /parar · /salir · /panel",
         "Moderacion": "/borrar · /expulsar · /banear · /silenciar",
         "Sorteos": "/sorteo",
         "Utilidad": "/ping · /servidor · /usuario · /ayuda · /version · /actualizar",
