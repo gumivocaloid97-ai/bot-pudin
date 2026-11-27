@@ -862,13 +862,19 @@ class Reproductor:
             return await mensaje.edit(content=texto, view=vista)
         except discord.NotFound:
             return None
-        except discord.HTTPException:
+        except Exception:
             return mensaje
 
     def _es_privado(self) -> bool:
         return self._guild_id() in GUILDS_PRIVADOS
 
     async def actualizar_panel(self) -> None:
+        try:
+            await self._actualizar_panel()
+        except Exception as error:
+            log.debug("No pude actualizar el panel: %s", error)
+
+    async def _actualizar_panel(self) -> None:
         self._ajustar_botones()
         if self.client is not None:
             try:
@@ -895,7 +901,7 @@ class Reproductor:
         if self.panel is None:
             try:
                 self.panel = await self.canal_texto.send(texto, view=vista_publica)
-            except discord.HTTPException:
+            except Exception:
                 pass
         else:
             self.panel = await self._editar(self.panel, texto, vista_publica)
@@ -911,7 +917,7 @@ class Reproductor:
         if self.panel_donadores is None:
             try:
                 self.panel_donadores = await canal.send(texto, view=self.vista)
-            except discord.HTTPException as error:
+            except Exception as error:
                 log.warning("No pude publicar los controles de donadores: %s", error)
         else:
             self.panel_donadores = await self._editar(self.panel_donadores, texto, self.vista)
