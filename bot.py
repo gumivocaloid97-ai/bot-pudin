@@ -701,6 +701,46 @@ async def on_member_unban(guild: discord.Guild, user: discord.User) -> None:
     await registrar(guild, "Desbaneo", f"{user} `{user.id}`", 0x2ECC71)
 
 
+def _canal(guild: discord.Guild, nombre: str) -> discord.TextChannel | None:
+    return discord.utils.get(guild.text_channels, name=nombre)
+
+
+async def avisar_entrada(member: discord.Member) -> None:
+    """Manda el aviso de edad y de tolerancia cero apenas entra."""
+    guild = member.guild
+    edad_canal = _canal(guild, "✅・edad")
+    reglas = _canal(guild, "📜・reglas")
+    reportes = _canal(guild, "🚨・reportes")
+
+    embed = discord.Embed(
+        title=f"Antes de empezar en {guild.name}",
+        description="Dos cosas y arrancamos.",
+        color=0xE74C3C,
+    )
+    pasos = []
+    if edad_canal is not None:
+        pasos.append(f"**1.** Elegí tu grupo de edad en {edad_canal.mention}: +18 o -18.\nUn clic. No se guarda nada, solo queda el rol.")
+    if reglas is not None:
+        pasos.append(f"**2.** Leé las reglas en {reglas.mention}.")
+    if pasos:
+        embed.add_field(name="Primero", value="\n\n".join(pasos), inline=False)
+    embed.add_field(
+        name="Tolerancia cero",
+        value=(
+            "Si alguien hace grooming, acoso o algo raro con un menor, "
+            "se lo banea en el momento. Sin aviso y sin vuelta.\n"
+            + (f"Si te pasa algo, escribí en {reportes.mention} o hablá con un moderador."
+               if reportes is not None else
+               "Si te pasa algo, hablá con un moderador.")
+        ),
+        inline=False,
+    )
+    try:
+        await member.send(embed=embed)
+    except discord.HTTPException:
+        log.info("No pude mandarle el aviso a %s (privados cerrados)", member)
+
+
 async def recibir_miembro(member: discord.Member) -> None:
     guild = member.guild
     rol = rol_entrada(guild)
@@ -716,6 +756,7 @@ async def recibir_miembro(member: discord.Member) -> None:
         return
 
     await aplicar_circulo(member)
+    await avisar_entrada(member)
 
     canal = canal_bienvenida(guild)
     if canal is None:
@@ -1091,6 +1132,48 @@ def embeds_guia() -> list[discord.Embed]:
     utilidad.set_footer(text="🔒 = solo staff · Los comandos de música necesitan que estés en un canal de voz")
 
     return [musica, donaciones, comunidad, utilidad]
+
+
+@tree.command(
+    name="ban-grooming",
+    description="Banea al instante por grooming o acoso a menores",
+)
+@app_commands.describe(miembro="Quien", prueba="Que paso (queda guardado en el registro)")
+@app_commands.default_permissions(ban_members=True)
+async def comando_ban_grooming(
+    interaction: discord.Interaction,
+    miembro: discord.Member,
+    prueba: str = "",
+) -> None:
+    if miembro.id == interaction.user.id:
+        await interaction.response.send_message("No te podés banear a vos mismo.", ephemeral=True)
+        return
+    if miembro.id == client.user.id:
+        await interaction.response.send_message("Ese soy yo.", ephemeral=True)
+        return
+    if miembro.top_role >= interaction.guild.me.top_role:
+        await interaction.response.send_message(
+            "No puedo banearlo: su rol está arriba del mío.", ephemeral=True
+        )
+        return
+    await interaction.response.defer(ephemeral=True)
+    motivo = f"Grooming/acoso a menores. Reportado por {interaction.user}. {prueba}".strip()
+    try:
+        await miembro.ban(reason=motivo[:500], delete_message_days=7)
+    except discord.Forbidden:
+        await interaction.followup.send("No tengo permiso para banear.", ephemeral=True)
+        return
+    await registrar(
+        interaction.guild,
+        "BAN POR GROOMING",
+        f"{miembro.mention} `{miembro}` baneado por {interaction.user.mention}\n"
+        f"Motivo: {prueba or 'sin detalle'}",
+        0x000000,
+    )
+    await interaction.followup.send(
+        f"{miembro.mention} baneado. Sus mensajes de los últimos 7 días se borraron.",
+        ephemeral=True,
+    )
 
 
 @tree.command(name="edad-panel", description="Publica el boton para elegir mayor o menor de 18")
@@ -1642,6 +1725,7 @@ async def comando_ayuda(interaction: discord.Interaction) -> None:
         "Comunidad": "/encuesta · /recordar · /cumple · /contador",
         "Guia completa": "mira el canal #comandos",
         "Edad": "elegí +18 o -18 en el canal de edad",
+        "Grooming": "/ban-grooming @alguien (staff) - banea al instante",
         "Donadores": "/donador · /donadores · /ranking · /colores · /ticket-panel · /quitar-donador",
         "Utilidad": "/ping · /servidor · /usuario · /ayuda · /version · /actualizar · /diagnostico",
     }
