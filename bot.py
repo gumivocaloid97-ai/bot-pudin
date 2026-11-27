@@ -96,8 +96,11 @@ async def aplicar_recompensas(member: discord.Member, nivel_anterior: int, nivel
             )
 
 
-@tasks.loop(hours=2)
+@tasks.loop(minutes=30)
 async def revisar_actualizaciones() -> None:
+    if any(rep.esta_sonando() for rep in reproductores.values()):
+        log.info("Hay musica sonando: la actualizacion espera a que termine")
+        return
     if not await asyncio.to_thread(actualizar.buscar):
         return
     log.info("Actualizacion aplicada: reiniciando el bot")
