@@ -232,9 +232,10 @@ async def revisar_actualizaciones() -> None:
     log.info("Actualizacion aplicada: reiniciando el bot")
     for rep in reproductores.values():
         rep.guardar_estado()
-    await client.close()
-    await asyncio.sleep(4)
-    actualizar.reiniciar()
+    try:
+        await client.close()
+    finally:
+        actualizar.reiniciar()
 
 
 async def _retomar_musica() -> None:
@@ -816,9 +817,10 @@ async def comando_actualizar(interaction: discord.Interaction) -> None:
     await interaction.followup.send(f"Actualizado a `{remota}`. Reiniciando...", ephemeral=True)
     for rep in reproductores.values():
         rep.guardar_estado()
-    await client.close()
-    await asyncio.sleep(4)
-    actualizar.reiniciar()
+    try:
+        await client.close()
+    finally:
+        actualizar.reiniciar()
 
 
 @tree.command(name="nivel", description="Muestra tu nivel, tu XP y tu puesto en el servidor")
