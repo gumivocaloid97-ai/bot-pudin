@@ -939,6 +939,74 @@ async def comando_diagnostico(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+def embeds_guia() -> list[discord.Embed]:
+    """Guia de comandos para el canal #comandos."""
+    musica = discord.Embed(
+        title="🎵 Música",
+        description=(
+            "`/play` — Poné un tema, un link o una playlist\n"
+            "`/pausa` — Pausa o reanuda\n"
+            "`/saltar` — Pasa al siguiente tema\n"
+            "`/parar` — Corta y limpia la cola\n"
+            "`/cola` — Muestra lo que viene\n"
+            "`/controles` — Abre el panel de botones\n"
+            "`/salir` — El bot se va del canal de voz"
+        ),
+        color=0x1ABC9C,
+    )
+    musica.set_footer(text="En el panel: ⏸ pausa · ⏪ ⏩ 30s · 🔁 repetir · 🔀 aleatorio · 📜 cola")
+
+    donaciones = discord.Embed(
+        title="💎 Donaciones",
+        description=(
+            "`/colores` — Elegí tu color de nombre\n"
+            "`/donadores` — Quiénes son Donador y hasta cuándo\n"
+            "`/ranking` — Tabla de los que más donaron\n"
+            "`/donador` 🔒 — Da el rol Donador\n"
+            "`/quitar-donador` 🔒 — Saca el rol\n"
+            "`/ticket-panel` 🔒 — Publica el botón de donar"
+        ),
+        color=0xF1C40F,
+    )
+
+    comunidad = discord.Embed(
+        title="🎉 Comunidad",
+        description=(
+            "`/nivel` — Tu nivel y experiencia\n"
+            "`/top` — Ranking de niveles del servidor\n"
+            "`/encuesta` — Crea una votación con botones\n"
+            "`/recordar` — Te aviso en X tiempo\n"
+            "`/cumple` — Guardá tu cumpleaños\n"
+            "`/sorteo` — Sorteo con botón de participar"
+        ),
+        color=0x3498DB,
+    )
+
+    utilidad = discord.Embed(
+        title="🛠️ Utilidad y staff",
+        description=(
+            "`/ayuda` — Resumen rápido\n"
+            "`/version` — Qué versión está corriendo\n"
+            "`/ping` — Si el bot está despierto\n"
+            "`/servidor` — Datos del servidor\n"
+            "`/usuario` — Info de un miembro\n"
+            "`/diagnostico` 🔒 — Estado técnico\n"
+            "`/actualizar` 🔒 — Busca actualizaciones\n"
+            "`/borrar` · `/expulsar` · `/banear` · `/silenciar` 🔒 — Moderación"
+        ),
+        color=0x95A5A6,
+    )
+    utilidad.set_footer(text="🔒 = solo staff · Los comandos de música necesitan que estés en un canal de voz")
+
+    return [musica, donaciones, comunidad, utilidad]
+
+
+@tree.command(name="comandos", description="Muestra la guia de comandos del servidor")
+@app_commands.default_permissions(administrator=True)
+async def comando_comandos(interaction: discord.Interaction) -> None:
+    await interaction.response.send_message(embeds=embeds_guia())
+
+
 @tree.command(name="colores", description="Publica el menu de colores de nombre")
 @app_commands.default_permissions(administrator=True)
 async def comando_colores(interaction: discord.Interaction) -> None:
@@ -1430,6 +1498,7 @@ async def comando_ayuda(interaction: discord.Interaction) -> None:
         "Moderacion": "/borrar · /expulsar · /banear · /silenciar",
         "Sorteos": "/sorteo",
         "Comunidad": "/encuesta · /recordar · /cumple · /contador",
+        "Guia completa": "mira el canal #comandos",
         "Donadores": "/donador · /donadores · /ranking · /colores · /ticket-panel · /quitar-donador",
         "Utilidad": "/ping · /servidor · /usuario · /ayuda · /version · /actualizar · /diagnostico",
     }
