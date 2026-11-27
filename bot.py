@@ -28,6 +28,11 @@ try:
 except ModuleNotFoundError:  # falta el archivo: el bot arranca igual y se actualiza
     vigilancia = None
 
+try:
+    import donaciones
+except ModuleNotFoundError:
+    donaciones = None
+
 GUILD_ID = 1575699459680112721
 SECTA_ID = 776821377800994826
 
@@ -49,6 +54,9 @@ CANAL_GENERAL = 1575699461777260645
 CANAL_REGISTRO = 1575850818802810961  # 📋・registro (staff)
 
 ANTISPAM = vigilancia.AntiSpam() if vigilancia else None
+
+ROL_DONADOR = 1575724468574224395  # 💎 Donador (Pudines)
+db_donadores = donaciones.conectar() if donaciones else None
 
 XP_MENSAJE_MIN = 15
 XP_MENSAJE_MAX = 25
@@ -155,6 +163,60 @@ async def aplicar_recompensas(member: discord.Member, nivel_anterior: int, nivel
             )
 
 
+@tasks.loop(minutes=10)
+async def tarea_donadores() -> None:
+    if db_donadores is None:
+        return
+    for guild in client.guilds:
+        await _revisar_donadores(guild)
+
+
+@tarea_donadores.before_loop
+async def antes_de_donadores() -> None:
+    await client.wait_until_ready()
+
+
+async def _revisar_donadores(guild: discord.Guild) -> None:
+    rol = guild.get_role(ROL_DONADOR)
+    for user_id, vence_en, avisado in donaciones.listar(db_donadores, guild.id):
+        miembro = guild.get_member(user_id)
+        if miembro is None:
+            continue
+        restante = vence_en - time.time()
+        if restante <= 0:
+            if rol is not None and rol in miembro.roles:
+                try:
+                    await miembro.remove_roles(rol, reason="Donacion vencida")
+                except discord.Forbidden:
+                    log.error("No pude quitar el rol donador a %s", miembro)
+                    continue
+            donaciones.quitar(db_donadores, guild.id, user_id)
+            await registrar(
+                guild,
+                "Donador vencido",
+                f"{miembro.mention} volvio a miembro comun",
+                0xE67E22,
+            )
+            try:
+                await miembro.send(
+                    "Se te vencio el mes de 💎 Donador en **"
+                    f"{guild.name}**. Si queres renovarlo, hablá con el staff 🍮"
+                )
+            except discord.HTTPException:
+                pass
+            continue
+        if restante <= donaciones.DIAS_DE_AVISO * 86400 and not avisado:
+            donaciones.marcar_avisado(db_donadores, guild.id, user_id)
+            dias = donaciones.dias_restantes(vence_en)
+            try:
+                await miembro.send(
+                    f"Te quedan **{dias} dias** de 💎 Donador en **{guild.name}**. "
+                    "Si queres seguir, avisale al staff 🍮"
+                )
+            except discord.HTTPException:
+                pass
+
+
 @tasks.loop(minutes=30)
 async def revisar_actualizaciones() -> None:
     if not await asyncio.to_thread(actualizar.buscar):
@@ -199,6 +261,8 @@ async def on_ready() -> None:
         tarea_circulos.start()
     if not revisar_actualizaciones.is_running():
         revisar_actualizaciones.start()
+    if not tarea_donadores.is_running():
+        tarea_donadores.start()
 
     for servidor in client.guilds:
         try:
@@ -583,6 +647,92 @@ async def comando_sorteo(
         pass
 
 
+@tree.command(name="donador", description="Da o renueva el rol Donador por un mes")
+@app_commands.describe(miembro="A quien", dias="Cuantos dias dura (por defecto 30)")
+@app_commands.default_permissions(administrator=True)
+async def comando_donador(
+    interaction: discord.Interaction, miembro: discord.Member, dias: int = 30
+) -> None:
+    if db_donadores is None:
+        await interaction.response.send_message("Falta el archivo donaciones.py.", ephemeral=True)
+        return
+    rol = interaction.guild.get_role(ROL_DONADOR)
+    if rol is None:
+        await interaction.response.send_message(
+            "No encuentro el rol 💎 Donador en este servidor.", ephemeral=True
+        )
+        return
+    dias = max(1, min(dias, 365))
+    vence_en = donaciones.otorgar(db_donadores, interaction.guild.id, miembro.id, dias)
+    if rol not in miembro.roles:
+        try:
+            await miembro.add_roles(rol, reason=f"Donacion de {dias} dias")
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "No pude darle el rol: revisá que mi rol esté arriba de Donador.", ephemeral=True
+            )
+            return
+    fecha = f"<t:{int(vence_en)}:D>"
+    await interaction.response.send_message(
+        f"💎 {miembro.mention} es Donador hasta el {fecha}."
+    )
+    await registrar(
+        interaction.guild,
+        "Donador otorgado",
+        f"{miembro.mention} por {dias} dias (vence {fecha})",
+        0xF1C40F,
+    )
+    try:
+        await miembro.send(
+            f"Gracias por bancar los Pudines 🍮\nTenes 💎 Donador hasta el {fecha}."
+        )
+    except discord.HTTPException:
+        pass
+
+
+@tree.command(name="donadores", description="Lista los donadores y cuando vencen")
+@app_commands.default_permissions(administrator=True)
+async def comando_donadores(interaction: discord.Interaction) -> None:
+    if db_donadores is None:
+        await interaction.response.send_message("Falta el archivo donaciones.py.", ephemeral=True)
+        return
+    filas = donaciones.listar(db_donadores, interaction.guild.id)
+    if not filas:
+        await interaction.response.send_message("No hay donadores anotados.", ephemeral=True)
+        return
+    lineas = []
+    for user_id, vence_en, _ in filas:
+        dias = donaciones.dias_restantes(vence_en)
+        lineas.append(f"<@{user_id}> — {dias} dias (vence <t:{int(vence_en)}:D>)")
+    embed = discord.Embed(title="💎 Donadores", description="\n".join(lineas), color=0xF1C40F)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@tree.command(name="quitar-donador", description="Le saca el rol Donador ahora mismo")
+@app_commands.describe(miembro="A quien")
+@app_commands.default_permissions(administrator=True)
+async def comando_quitar_donador(
+    interaction: discord.Interaction, miembro: discord.Member
+) -> None:
+    if db_donadores is None:
+        await interaction.response.send_message("Falta el archivo donaciones.py.", ephemeral=True)
+        return
+    donaciones.quitar(db_donadores, interaction.guild.id, miembro.id)
+    rol = interaction.guild.get_role(ROL_DONADOR)
+    if rol is not None and rol in miembro.roles:
+        try:
+            await miembro.remove_roles(rol, reason="Donacion dada de baja")
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "No pude quitarle el rol.", ephemeral=True
+            )
+            return
+    await interaction.response.send_message(f"💎 {miembro.mention} ya no es Donador.")
+    await registrar(
+        interaction.guild, "Donador dado de baja", f"{miembro.mention}", 0xE74C3C
+    )
+
+
 @tree.command(name="actualizar", description="Busca actualizaciones del bot ahora mismo")
 @app_commands.default_permissions(administrator=True)
 async def comando_actualizar(interaction: discord.Interaction) -> None:
@@ -929,6 +1079,7 @@ async def comando_ayuda(interaction: discord.Interaction) -> None:
         "Musica": "/play · /controles · /cola · /pausa · /saltar · /parar · /salir · /panel",
         "Moderacion": "/borrar · /expulsar · /banear · /silenciar",
         "Sorteos": "/sorteo",
+        "Donadores": "/donador · /donadores · /quitar-donador",
         "Utilidad": "/ping · /servidor · /usuario · /ayuda · /version · /actualizar",
     }
     embed = discord.Embed(title="Bot Pudin v.2", description="Todo lo que puedo hacer", color=0xF1C40F)
