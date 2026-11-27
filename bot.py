@@ -98,12 +98,11 @@ async def aplicar_recompensas(member: discord.Member, nivel_anterior: int, nivel
 
 @tasks.loop(minutes=30)
 async def revisar_actualizaciones() -> None:
-    if any(rep.esta_sonando() for rep in reproductores.values()):
-        log.info("Hay musica sonando: la actualizacion espera a que termine")
-        return
     if not await asyncio.to_thread(actualizar.buscar):
         return
     log.info("Actualizacion aplicada: reiniciando el bot")
+    for rep in reproductores.values():
+        rep.guardar_estado()
     await client.close()
     actualizar.reiniciar()
 
@@ -141,6 +140,13 @@ async def on_ready() -> None:
         tarea_circulos.start()
     if not revisar_actualizaciones.is_running():
         revisar_actualizaciones.start()
+
+    for servidor in client.guilds:
+        try:
+            if await reproductor_de(servidor).restaurar(servidor):
+                log.info("Musica retomada en %s", servidor.name)
+        except Exception as error:
+            log.warning("No pude retomar la musica en %s: %s", servidor.name, error)
 
 
 @client.event
