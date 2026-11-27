@@ -295,6 +295,27 @@ class VolumenSelect(discord.ui.Select):
         await self.reproductor.actualizar_panel()
 
 
+class SaltoBoton(discord.ui.Button):
+    """Cada boton de la fila es un punto de la cancion."""
+
+    def __init__(self, panel: "Panel", indice: int) -> None:
+        self.panel = panel
+        self.indice = indice
+        self.posicion = 0.0
+        super().__init__(
+            label="--:--",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"pudin_pos{indice}",
+            row=4,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not await self.panel.puede_usar(interaction):
+            return
+        await interaction.response.defer()
+        await self.panel.reproductor.saltar_a(self.posicion)
+
+
 class Panel(discord.ui.View):
     """Controles de musica."""
 
@@ -303,6 +324,9 @@ class Panel(discord.ui.View):
         self.reproductor = reproductor
         self.add_item(SaltoSelect(self))
         self.add_item(VolumenSelect(self))
+        self.posiciones = [SaltoBoton(self, indice) for indice in range(5)]
+        for boton in self.posiciones:
+            self.add_item(boton)
 
     async def puede_usar(self, interaction: discord.Interaction) -> bool:
         privado = getattr(interaction.guild, "id", None) in GUILDS_PRIVADOS
@@ -659,6 +683,12 @@ class Reproductor:
             self.fuente.volume = self.volumen
         return self.volumen
 
+    def _posiciones(self) -> list[float]:
+        total = self.actual.duracion if self.actual else None
+        if not total:
+            return [0.0] * 5
+        return [float(round(total * indice / 5 / 30) * 30) for indice in range(5)]
+
     def _opciones_salto(self) -> list[discord.SelectOption]:
         if self.actual is None or not self.actual.duracion:
             return [discord.SelectOption(label="Sin reproduccion", value="0")]
@@ -679,6 +709,12 @@ class Reproductor:
         salto = discord.utils.get(self.vista.children, custom_id="pudin_salto")
         if salto is not None:
             salto.options = self._opciones_salto()
+        posiciones = self._posiciones()
+        for boton in self.vista.posiciones:
+            destino = posiciones[boton.indice]
+            boton.posicion = destino
+            boton.label = mmss(destino) if self.actual and self.actual.duracion else "--:--"
+            boton.disabled = not (self.actual and self.actual.duracion)
         volumen = discord.utils.get(self.vista.children, custom_id="pudin_volumen")
         if volumen is not None:
             for opcion in volumen.options:
