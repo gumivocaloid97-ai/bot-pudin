@@ -43,6 +43,29 @@ ARCHIVO_PANEL = Path(__file__).resolve().parent / "panel.txt"
 ARCHIVO_PANELES = Path(__file__).resolve().parent / "paneles.json"
 
 
+ARCHIVO_ESTADO = Path(__file__).resolve().parent / "estado_reproduccion.json"
+
+
+def _leer_estado() -> dict:
+    try:
+        return json.loads(ARCHIVO_ESTADO.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _guardar_estado(datos: dict) -> None:
+    try:
+        ARCHIVO_ESTADO.write_text(json.dumps(datos), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _olvidar_estado(guild_id: int) -> None:
+    datos = _leer_estado()
+    if datos.pop(str(guild_id), None) is not None:
+        _guardar_estado(datos)
+
+
 def _leer_paneles() -> dict:
     try:
         return json.loads(ARCHIVO_PANELES.read_text(encoding="utf-8"))
@@ -81,6 +104,7 @@ class Pista:
     url_directa: str | None = None
     cabeceras: dict = field(default_factory=dict)
     duracion: float | None = None
+    desde: float = 0.0
 
 
 def mmss(segundos: float | None) -> str:
@@ -482,6 +506,80 @@ class Reproductor:
             lineas.append(f"En cola: {len(self.cola)}")
         return "\n".join(lineas)
 
+    def guardar_estado(self) -> None:
+        """Deja anotado que suena y por donde va, para retomarlo al reiniciar."""
+        if self.actual is None or self.canal_voz is None:
+            return
+        datos = _leer_estado()
+        datos[str(self.canal_voz.guild.id)] = {
+            "voz": self.canal_voz.id,
+            "texto": getattr(self.canal_texto, "id", None),
+            "volumen": self.volumen,
+            "actual": {
+                "consulta": self.actual.consulta,
+                "titulo": self.actual.titulo,
+                "duracion": self.actual.duracion,
+                "desde": self._transcurrido(),
+                "archivo": str(self.actual.archivo) if self.actual.archivo else None,
+            },
+            "cola": [
+                {"consulta": p.consulta, "titulo": p.titulo, "duracion": p.duracion}
+                for p in self.cola
+            ],
+        }
+        _guardar_estado(datos)
+
+    async def restaurar(self, guild: discord.Guild) -> bool:
+        """Vuelve a poner lo que sonaba antes de reiniciar."""
+        datos = _leer_estado().get(str(guild.id))
+        if not datos:
+            return False
+        canal_voz = guild.get_channel(datos.get("voz") or 0)
+        if canal_voz is None or not hasattr(canal_voz, "connect"):
+            _olvidar_estado(guild.id)
+            return False
+        if not any(not miembro.bot for miembro in canal_voz.members):
+            _olvidar_estado(guild.id)
+            return False
+
+        guardadas: list[Pista] = []
+        actual = datos.get("actual") or {}
+        if actual.get("consulta"):
+            pista = Pista(
+                actual.get("titulo") or "Sin titulo",
+                actual["consulta"],
+                duracion=actual.get("duracion"),
+                desde=float(actual.get("desde") or 0.0),
+            )
+            archivo = actual.get("archivo")
+            if archivo and Path(archivo).exists():
+                pista.archivo = Path(archivo)
+            guardadas.append(pista)
+        for guardada in datos.get("cola") or []:
+            if guardada.get("consulta"):
+                guardadas.append(
+                    Pista(guardada.get("titulo") or "Sin titulo", guardada["consulta"],
+                          duracion=guardada.get("duracion"))
+                )
+        if not guardadas:
+            _olvidar_estado(guild.id)
+            return False
+
+        self.canal_texto = guild.get_channel(datos.get("texto") or 0) or canal_voz
+        self.volumen = float(datos.get("volumen") or 1.0)
+        await self.asegurar_conexion(canal_voz)
+        self.cola.clear()
+        self.cola.extend(guardadas)
+        _olvidar_estado(guild.id)
+        log.info("Retomo donde habia quedado: %s (%s)", guardadas[0].titulo, mmss(guardadas[0].desde))
+        await self._avanzar()
+        return True
+
+    def olvidar_estado(self) -> None:
+        guild = self.canal_voz.guild.id if self.canal_voz is not None else None
+        if guild:
+            _olvidar_estado(guild)
+
     def esta_sonando(self) -> bool:
         if self.voz is None or self.actual is None:
             return False
@@ -676,6 +774,8 @@ class Reproductor:
 
                 if pista.url_directa:
                     antes = ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]
+                    if pista.desde:
+                        antes = ["-ss", f"{pista.desde:.2f}"] + antes
                     agente = pista.cabeceras.get("User-Agent")
                     if agente:
                         antes += ["-user_agent", agente]
@@ -690,13 +790,17 @@ class Reproductor:
                     )
                 else:
                     fuente = discord.FFmpegPCMAudio(
-                        str(pista.archivo), executable=ruta_ffmpeg() or "ffmpeg", options="-vn"
+                        str(pista.archivo),
+                        executable=ruta_ffmpeg() or "ffmpeg",
+                        before_options=f"-ss {pista.desde:.2f}" if pista.desde else None,
+                        options="-vn",
                     )
 
                 self._cargando = False
                 self.fuente = discord.PCMVolumeTransformer(fuente, volume=self.volumen)
-                self.inicio = time.monotonic()
+                self.inicio = time.monotonic() - pista.desde
                 self.pausado_desde = None
+                self.guardar_estado()
                 self.voz.play(self.fuente, after=self._al_terminar)
                 log.info("Reproduciendo: %s", pista.titulo)
                 await self._mostrar_panel()
@@ -705,6 +809,7 @@ class Reproductor:
 
             self._borrar_actual()
             self.actual = None
+            self.olvidar_estado()
             await self.actualizar_panel()
         finally:
             self._avanzando = False
@@ -773,6 +878,7 @@ class Reproductor:
         self.fuente = None
         self.inicio = None
         self.pausado_desde = None
+        self.olvidar_estado()
         await self.actualizar_panel()
 
     async def desconectar(self) -> None:
@@ -786,3 +892,4 @@ class Reproductor:
         self.fuente = None
         self.inicio = None
         self.pausado_desde = None
+        self.olvidar_estado()
