@@ -41,14 +41,20 @@ def puede_elegir(conn, miembro: discord.Member) -> tuple[bool, int]:
 
 
 def embed_panel() -> discord.Embed:
+    lineas = [
+        "Elegí cómo querés que se vea tu nombre en el servidor.",
+        "",
+        "El color se pinta en tu nombre: arriba de cada mensaje que escribís",
+        "y en la lista de miembros. El texto del mensaje no cambia, sigue blanco.",
+        "",
+        f"**Se abre a los {DIAS_COLOR} días seguidos de donación.**",
+        f"**{DORADO}** te lo damos solo a los {DIAS_DORADO} días, y es el máximo.",
+        "",
+        "Podés cambiarlo las veces que quieras.",
+    ]
     return discord.Embed(
-        title="🎨 Color de nombre",
-        description=(
-            "Elegí el color con el que aparecés en el servidor.\n\n"
-            f"**Se desbloquea a los {DIAS_COLOR} días seguidos de donación.**\n"
-            f"**{DORADO}** llega solo a los {DIAS_DORADO} días.\n\n"
-            "Podés cambiarlo las veces que quieras."
-        ),
+        title="🎨 Tu color de nombre",
+        description="\n".join(lineas),
         color=0xF1C40F,
     )
 
