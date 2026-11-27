@@ -46,6 +46,11 @@ try:
 except ModuleNotFoundError:
     colores = None
 
+try:
+    import edad
+except ModuleNotFoundError:
+    edad = None
+
 GUILD_ID = 1575699459680112721
 SECTA_ID = 776821377800994826
 
@@ -188,6 +193,15 @@ async def tarea_donadores() -> None:
 @tarea_donadores.before_loop
 async def antes_de_donadores() -> None:
     await client.wait_until_ready()
+
+
+async def _registrar_edad(miembro: discord.Member, antes: str | None, despues: str) -> None:
+    await registrar(
+        miembro.guild,
+        "Grupo de edad",
+        f"{miembro.mention} `{miembro}`: {antes or 'sin grupo'} -> **{despues}**",
+        0x3498DB,
+    )
 
 
 async def _revisar_boost(miembro: discord.Member) -> None:
@@ -463,6 +477,11 @@ async def on_ready() -> None:
         for miembro in servidor.members:
             if miembro.premium_since is not None:
                 await _revisar_boost(miembro)
+    if edad is not None:
+        try:
+            client.add_view(edad.PanelEdad())
+        except Exception as error:
+            log.warning("No pude registrar el panel de edad: %s", error)
     if colores is not None:
         try:
             client.add_view(colores.Selector(db_donadores))
@@ -1074,6 +1093,56 @@ def embeds_guia() -> list[discord.Embed]:
     return [musica, donaciones, comunidad, utilidad]
 
 
+@tree.command(name="edad-panel", description="Publica el boton para elegir mayor o menor de 18")
+@app_commands.default_permissions(administrator=True)
+async def comando_edad_panel(interaction: discord.Interaction) -> None:
+    if edad is None:
+        await interaction.response.send_message("Falta el archivo edad.py.", ephemeral=True)
+        return
+    await interaction.response.send_message(
+        embed=edad.embed_panel(), view=edad.PanelEdad()
+    )
+
+
+@tree.command(name="edad", description="Marca a alguien como mayor o menor de 18")
+@app_commands.describe(miembro="A quien", grupo="Que grupo le corresponde")
+@app_commands.choices(
+    grupo=[
+        app_commands.Choice(name="Mayor de 18", value="18"),
+        app_commands.Choice(name="Menor de 18", value="-18"),
+    ]
+)
+@app_commands.default_permissions(administrator=True)
+async def comando_edad(
+    interaction: discord.Interaction,
+    miembro: discord.Member,
+    grupo: app_commands.Choice[str],
+) -> None:
+    if edad is None:
+        await interaction.response.send_message("Falta el archivo edad.py.", ephemeral=True)
+        return
+    nombre = edad.ROL_ADULTO if grupo.value == "18" else edad.ROL_MENOR
+    destino = edad.rol(interaction.guild, nombre)
+    if destino is None:
+        await interaction.response.send_message(
+            f"Falta el rol `{nombre}` en el servidor.", ephemeral=True
+        )
+        return
+    actuales = [r for r in miembro.roles if r.name in edad.GRUPOS]
+    try:
+        if actuales:
+            await miembro.remove_roles(*actuales, reason="Cambio manual de grupo de edad")
+        await miembro.add_roles(destino, reason=f"Cambio manual por {interaction.user}")
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            "No pude cambiarle el rol: revisá mi jerarquia.", ephemeral=True
+        )
+        return
+    await interaction.response.send_message(
+        f"{miembro.mention} quedo como **{nombre}**.", ephemeral=True
+    )
+
+
 @tree.command(name="comandos", description="Muestra la guia de comandos del servidor")
 @app_commands.default_permissions(administrator=True)
 async def comando_comandos(interaction: discord.Interaction) -> None:
@@ -1572,6 +1641,7 @@ async def comando_ayuda(interaction: discord.Interaction) -> None:
         "Sorteos": "/sorteo",
         "Comunidad": "/encuesta · /recordar · /cumple · /contador",
         "Guia completa": "mira el canal #comandos",
+        "Edad": "elegí +18 o -18 en el canal de edad",
         "Donadores": "/donador · /donadores · /ranking · /colores · /ticket-panel · /quitar-donador",
         "Utilidad": "/ping · /servidor · /usuario · /ayuda · /version · /actualizar · /diagnostico",
     }
@@ -1592,6 +1662,10 @@ async def comando_probar(interaction: discord.Interaction) -> None:
     await rep.detener()
     await rep.tono(5)
     await interaction.followup.send("Tono enviado. Se escucho algo?")
+
+
+if edad is not None:
+    edad.al_cambiar = _registrar_edad
 
 
 if __name__ == "__main__":
