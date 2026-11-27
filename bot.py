@@ -335,6 +335,15 @@ async def antes_de_voz() -> None:
     await client.wait_until_ready()
 
 
+@tree.command(name="version", description="Muestra que version del bot esta corriendo")
+async def comando_version(interaction: discord.Interaction) -> None:
+    archivo = Path(__file__).with_name("version.txt")
+    texto = archivo.read_text(encoding="utf-8").strip() if archivo.exists() else "sin version"
+    embed = discord.Embed(title="Bot Pudin v2", description=f"Version **{texto}**", color=0xF1C40F)
+    embed.set_footer(text="Se actualiza sola desde GitHub al arrancar")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 @tree.command(name="nivel", description="Muestra tu nivel, tu XP y tu puesto en el servidor")
 @app_commands.describe(usuario="Consultar el nivel de otra persona")
 async def comando_nivel(interaction: discord.Interaction, usuario: discord.Member | None = None) -> None:
