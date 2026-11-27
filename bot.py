@@ -190,6 +190,53 @@ async def antes_de_donadores() -> None:
     await client.wait_until_ready()
 
 
+async def _revisar_boost(miembro: discord.Member) -> None:
+    """Da o saca el rol Donador segun si la persona mejora el servidor."""
+    guild = miembro.guild
+    rol = guild.get_role(ROL_DONADOR)
+    if rol is None:
+        return
+    mejora = miembro.premium_since is not None
+    tiene = rol in miembro.roles
+
+    if mejora and not tiene:
+        try:
+            await miembro.add_roles(rol, reason="Mejora el servidor")
+        except discord.Forbidden:
+            log.error("No pude dar Donador por mejora a %s", miembro)
+            return
+        await registrar(
+            guild,
+            "Mejora del servidor",
+            f"{miembro.mention} empezo a mejorar y recibio {rol.mention}",
+            0xF47FFF,
+        )
+        try:
+            await miembro.send(
+                "Gracias por mejorar **" + guild.name + "** 🍮\n"
+                "Te di 💎 Donador automatico mientras dure tu mejora. "
+                "Ya tenes los canales privados y la radio."
+            )
+        except discord.HTTPException:
+            pass
+        return
+
+    if not mejora and tiene:
+        if db_donadores is not None and donaciones.vence(db_donadores, guild.id, miembro.id):
+            return  # paga aparte: el rol no se toca
+        try:
+            await miembro.remove_roles(rol, reason="Dejo de mejorar")
+        except discord.Forbidden:
+            log.error("No pude quitar Donador a %s", miembro)
+            return
+        await registrar(
+            guild,
+            "Fin de la mejora",
+            f"{miembro.mention} dejo de mejorar el servidor",
+            0x95A5A6,
+        )
+
+
 async def _revisar_donadores(guild: discord.Guild) -> None:
     rol = guild.get_role(ROL_DONADOR)
     for user_id, vence_en, avisado in donaciones.listar(db_donadores, guild.id):
@@ -412,6 +459,10 @@ async def on_ready() -> None:
         tarea_cumples.start()
     if not tarea_contador.is_running():
         tarea_contador.start()
+    for servidor in client.guilds:
+        for miembro in servidor.members:
+            if miembro.premium_since is not None:
+                await _revisar_boost(miembro)
     if colores is not None:
         try:
             client.add_view(colores.Selector(db_donadores))
@@ -572,6 +623,8 @@ async def on_member_update(antes: discord.Member, despues: discord.Member) -> No
         await registrar(despues.guild, "Acepto las reglas", f"{despues.mention} `{despues}`", 0x2ECC71)
         await recibir_miembro(despues)
         return
+    if antes.premium_since != despues.premium_since:
+        await _revisar_boost(despues)
     if antes.nick != despues.nick:
         await registrar(
             despues.guild,
@@ -865,8 +918,15 @@ async def comando_donadores(interaction: discord.Interaction) -> None:
         await interaction.response.send_message("Falta el archivo donaciones.py.", ephemeral=True)
         return
     filas = donaciones.listar(db_donadores, interaction.guild.id)
-    if not filas:
-        await interaction.response.send_message("No hay donadores anotados.", ephemeral=True)
+    mejoradores = [
+        miembro
+        for miembro in interaction.guild.members
+        if miembro.premium_since is not None and not miembro.bot
+    ]
+    if not filas and not mejoradores:
+        await interaction.response.send_message(
+            "No hay donadores ni mejoras por ahora.", ephemeral=True
+        )
         return
     lineas = []
     for user_id, vence_en, _ in filas:
@@ -882,6 +942,13 @@ async def comando_donadores(interaction: discord.Interaction) -> None:
             f"{marca}<@{user_id}> — {dias} dias (vence <t:{int(vence_en)}:D>) · "
             f"{veces} pago{'s' if veces != 1 else ''} · {racha} seguidos"
         )
+    if mejoradores:
+        lineas.append("")
+        lineas.append("**Mejoran el servidor:**")
+        for miembro in mejoradores:
+            lineas.append(
+                f"<@{miembro.id}> — desde <t:{int(miembro.premium_since.timestamp())}:D>"
+            )
     embed = discord.Embed(title="💎 Donadores", description="\n".join(lineas), color=0xF1C40F)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -966,7 +1033,7 @@ def embeds_guia() -> list[discord.Embed]:
         title="💎 Donaciones",
         description=(
             "`/colores` — Color de nombre (a los 60 días seguidos)\n"
-            "`/donadores` — Quiénes son Donador y hasta cuándo\n"
+            "`/donadores` — Donadores, vencimientos y los que mejoran el servidor\n"
             "`/ranking` — Tabla de los que más donaron\n"
             "`/donador` 🔒 — Da el rol Donador\n"
             "`/quitar-donador` 🔒 — Saca el rol\n"
