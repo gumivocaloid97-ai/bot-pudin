@@ -4,13 +4,21 @@ from __future__ import annotations
 import os
 import ssl
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 REPO = "gumivocaloid97-ai/bot-pudin"
 API = f"https://api.github.com/repos/{REPO}/contents"
 CRUDO = f"https://raw.githubusercontent.com/{REPO}/main"
-ARCHIVOS = ("bot.py", "musica.py", "niveles.py", "salud.py", "actualizar.py", "vigilancia.py", "donaciones.py", "comunidad.py", "tickets.py", "colores.py", "edad.py", "radio.py")
+ARCHIVOS = (
+    "bot.py", "musica.py", "niveles.py", "salud.py", "actualizar.py",
+    "vigilancia.py", "donaciones.py", "comunidad.py", "tickets.py",
+    "colores.py", "edad.py", "radio.py", "supervisor.py", "inicio.py",
+    "Iniciar Oculto.vbs", "Arrancar Bot.bat", "Detener Bot.bat",
+    "Ver Registro.bat", "Instalar Inicio Automatico.bat",
+    "Quitar Inicio Automatico.bat",
+)
 ESPERA = 20
 
 CARPETA = Path(__file__).resolve().parent
@@ -39,11 +47,12 @@ def _bajar(url: str, extra: dict) -> bytes:
 
 
 def _descargar(nombre: str) -> bytes:
-    # la API responde al instante; el CDN de raw tarda minutos en refrescar
+    # los nombres con espacios tienen que ir codificados en la URL
+    ruta = urllib.parse.quote(nombre)
     try:
-        return _bajar(f"{API}/{nombre}?ref=main", {"Accept": "application/vnd.github.raw"})
+        return _bajar(f"{API}/{ruta}?ref=main", {"Accept": "application/vnd.github.raw"})
     except Exception:
-        return _bajar(f"{CRUDO}/{nombre}", {})
+        return _bajar(f"{CRUDO}/{ruta}", {})
 
 
 def version_local() -> str:
