@@ -227,6 +227,8 @@ async def _revisar_donadores(guild: discord.Guild) -> None:
 
 @tasks.loop(minutes=30)
 async def revisar_actualizaciones() -> None:
+    if any(rep.esta_sonando() for rep in reproductores.values()):
+        return  # no cortamos la musica: probamos en la proxima vuelta
     if not await asyncio.to_thread(actualizar.buscar):
         return
     log.info("Actualizacion aplicada: reiniciando el bot")
