@@ -10,7 +10,7 @@ from pathlib import Path
 REPO = "gumivocaloid97-ai/bot-pudin"
 API = f"https://api.github.com/repos/{REPO}/contents"
 CRUDO = f"https://raw.githubusercontent.com/{REPO}/main"
-ARCHIVOS = ("bot.py", "musica.py", "niveles.py", "salud.py", "actualizar.py", "vigilancia.py", "donaciones.py", "comunidad.py", "tickets.py")
+ARCHIVOS = ("bot.py", "musica.py", "niveles.py", "salud.py", "actualizar.py", "vigilancia.py", "donaciones.py", "comunidad.py", "tickets.py", "colores.py")
 ESPERA = 20
 
 CARPETA = Path(__file__).resolve().parent
