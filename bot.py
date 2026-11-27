@@ -228,6 +228,8 @@ async def _revisar_donadores(guild: discord.Guild) -> None:
             except discord.HTTPException:
                 pass
             continue
+        if colores is not None:
+            await colores.aplicar_nivel(db_donadores, miembro)
         if restante <= donaciones.DIAS_DE_AVISO * 86400 and not avisado:
             donaciones.marcar_avisado(db_donadores, guild.id, user_id)
             dias = donaciones.dias_restantes(vence_en)
@@ -412,7 +414,7 @@ async def on_ready() -> None:
         tarea_contador.start()
     if colores is not None:
         try:
-            client.add_view(colores.Selector())
+            client.add_view(colores.Selector(db_donadores))
         except Exception as error:
             log.warning("No pude registrar el selector de colores: %s", error)
     if tickets is not None:
@@ -872,9 +874,13 @@ async def comando_donadores(interaction: discord.Interaction) -> None:
         pagos = donaciones.pagos_de(db_donadores, interaction.guild.id, user_id)
         total = sum(pago[0] for pago in pagos)
         veces = len(pagos)
+        racha = donaciones.racha(db_donadores, interaction.guild.id, user_id)
+        tope = colores.DIAS_DORADO if colores else 150
+        base = colores.DIAS_COLOR if colores else 60
+        marca = "👑 " if racha >= tope else ("🎨 " if racha >= base else "")
         lineas.append(
-            f"<@{user_id}> — {dias} dias (vence <t:{int(vence_en)}:D>) · "
-            f"{veces} pago{'s' if veces != 1 else ''} · {total} dias en total"
+            f"{marca}<@{user_id}> — {dias} dias (vence <t:{int(vence_en)}:D>) · "
+            f"{veces} pago{'s' if veces != 1 else ''} · {racha} seguidos"
         )
     embed = discord.Embed(title="💎 Donadores", description="\n".join(lineas), color=0xF1C40F)
     await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -959,7 +965,7 @@ def embeds_guia() -> list[discord.Embed]:
     donaciones = discord.Embed(
         title="💎 Donaciones",
         description=(
-            "`/colores` — Elegí tu color de nombre\n"
+            "`/colores` — Color de nombre (a los 60 días seguidos)\n"
             "`/donadores` — Quiénes son Donador y hasta cuándo\n"
             "`/ranking` — Tabla de los que más donaron\n"
             "`/donador` 🔒 — Da el rol Donador\n"
@@ -1014,7 +1020,7 @@ async def comando_colores(interaction: discord.Interaction) -> None:
         await interaction.response.send_message("Falta el archivo colores.py.", ephemeral=True)
         return
     await interaction.response.send_message(
-        embed=colores.embed_panel(), view=colores.Selector()
+        embed=colores.embed_panel(), view=colores.Selector(db_donadores)
     )
 
 
