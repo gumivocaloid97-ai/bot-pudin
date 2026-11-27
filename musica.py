@@ -29,6 +29,10 @@ CARPETA.mkdir(exist_ok=True)
 
 MAX_PISTAS = 50
 
+# Servidores donde los botones son exclusivos de 💎 Donador (para monetizar).
+# En el resto, los botones los ve y los usa cualquiera.
+GUILDS_PRIVADOS = {1575699459680112721}
+
 # Si el usuario exporta sus cookies de YouTube aca, yt-dlp las usa automaticamente.
 COOKIES = Path(__file__).resolve().parent / "cookies.txt"
 
@@ -226,7 +230,8 @@ class Panel(discord.ui.View):
         self.reproductor = reproductor
 
     async def _puede_usar(self, interaction: discord.Interaction) -> bool:
-        if not es_donador(interaction.user):
+        privado = getattr(interaction.guild, "id", None) in GUILDS_PRIVADOS
+        if privado and not es_donador(interaction.user):
             await interaction.response.send_message(
                 "Los botones son para 💎 Donador. Igual podes pedir temas con /play.",
                 ephemeral=True,
@@ -545,11 +550,16 @@ class Reproductor:
         except discord.HTTPException:
             return mensaje
 
+    def _es_privado(self) -> bool:
+        return self._guild_id() in GUILDS_PRIVADOS
+
     async def actualizar_panel(self) -> None:
         self._ajustar_botones()
         texto = self._texto_panel()
-        self.panel = await self._editar(self.panel, texto, None)
-        self.panel_donadores = await self._editar(self.panel_donadores, texto, self.vista)
+        privado = self._es_privado()
+        self.panel = await self._editar(self.panel, texto, None if privado else self.vista)
+        if privado:
+            self.panel_donadores = await self._editar(self.panel_donadores, texto, self.vista)
         self._recordar("publico", self.panel)
         self._recordar("donadores", self.panel_donadores)
 
@@ -558,17 +568,21 @@ class Reproductor:
             return
         self._ajustar_botones()
         texto = self._texto_panel()
+        privado = self._es_privado()
+        vista_publica = None if privado else self.vista
         if self.panel is None:
             self.panel = await self._recuperar("publico")
         if self.panel is None:
             try:
-                self.panel = await self.canal_texto.send(texto)
+                self.panel = await self.canal_texto.send(texto, view=vista_publica)
             except discord.HTTPException:
                 pass
         else:
-            self.panel = await self._editar(self.panel, texto, None)
+            self.panel = await self._editar(self.panel, texto, vista_publica)
         self._recordar("publico", self.panel)
 
+        if not privado:
+            return
         canal = canal_donadores(getattr(self.canal_texto, "guild", None))
         if canal is None:
             return
