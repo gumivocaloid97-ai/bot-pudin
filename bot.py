@@ -91,6 +91,23 @@ MINIMO_EN_VOZ = 2  # no dar XP por estar solo en un canal
 RECOMPENSAS = {5: 1575724469954027682}  # nivel -> rol (Pudin Fiel)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s")
+
+# Copia en bot.log: cuando corre en segundo plano no hay consola donde mirar.
+try:
+    from logging.handlers import RotatingFileHandler
+
+    _archivo = RotatingFileHandler(
+        Path(__file__).with_name("bot.log"),
+        maxBytes=2_000_000,
+        backupCount=2,
+        encoding="utf-8",
+    )
+    _archivo.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+    )
+    logging.getLogger().addHandler(_archivo)
+except OSError:
+    pass
 log = logging.getLogger("pudin")
 
 
@@ -1155,7 +1172,7 @@ def embeds_guia() -> list[discord.Embed]:
             "`/servidor` — Datos del servidor\n"
             "`/usuario` — Info de un miembro\n"
             "`/diagnostico` 🔒 — Estado técnico\n"
-            "`/actualizar` 🔒 — Busca actualizaciones\n"
+            "`/actualizar` 🔒 — Busca actualizaciones\n`/reiniciar` 🔒 — Reinicia el bot\n"
             "`/borrar` · `/expulsar` · `/banear` · `/silenciar` 🔒 — Moderación"
         ),
         color=0x95A5A6,
@@ -1874,6 +1891,17 @@ async def comando_ayuda(interaction: discord.Interaction) -> None:
     for nombre, lista in grupos.items():
         embed.add_field(name=nombre, value=lista, inline=False)
     await interaction.response.send_message(embed=embed)
+
+
+@tree.command(name="reiniciar", description="Reinicia el bot sin buscar actualizaciones")
+@app_commands.default_permissions(administrator=True)
+async def comando_reiniciar(interaction: discord.Interaction) -> None:
+    await interaction.response.send_message(
+        "Reiniciando. Vuelvo en unos segundos.", ephemeral=True
+    )
+    log.info("Reinicio pedido por %s", interaction.user)
+    await _despedir_voz()
+    actualizar.reiniciar()
 
 
 @tree.command(name="probar", description="Prueba de audio: reproduce un tono de 5 segundos")
