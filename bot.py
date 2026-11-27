@@ -725,6 +725,14 @@ async def avisar_entrada(member: discord.Member) -> None:
     if pasos:
         embed.add_field(name="Primero", value="\n\n".join(pasos), inline=False)
     embed.add_field(
+        name="Sean honestos",
+        value=(
+            "Si mentís con la edad y se descubre, hay sanción o ban directo.\n"
+            "Si te equivocaste, avisale al staff y se corrige sin problema."
+        ),
+        inline=False,
+    )
+    embed.add_field(
         name="Tolerancia cero",
         value=(
             "Si alguien hace grooming, acoso o algo raro con un menor, "
