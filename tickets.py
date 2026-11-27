@@ -139,20 +139,29 @@ class PanelTicket(discord.ui.View):
 
 
 def embed_panel() -> discord.Embed:
+    lineas = [
+        "El servidor se mantiene con lo que ponen los que lo quieren.",
+        "",
+        "**1 mes — 💎 Donador**",
+        "• Tu nombre en amarillo",
+        "• Un canal privado solo para donadores",
+        "• Entrás a la radio de música cuando quieras",
+        "• Sorteos solo para donadores",
+        "• Podés poner un emoji en tu apodo",
+        "",
+        "**2 meses seguidos — 🎨 Tu color**",
+        "• Elegís el color de tu nombre: rojo, naranja, verde, celeste, violeta o rosa",
+        "• Se pinta en tu nombre, arriba de cada mensaje que escribís",
+        "",
+        "**5 meses seguidos — 👑 Dorado**",
+        "• El color dorado, solo para los que nunca cortaron",
+        "",
+        "**Ojo:** si un mes no renovás, perdés todo y la cuenta vuelve a cero.",
+        "",
+        "Tocá el botón y te abro un canal privado para hablar con el staff.",
+    ]
     return discord.Embed(
         title="💎 Donaciones",
-        description=(
-            "El servidor se mantiene con las donaciones de la gente que lo banca.\n\n"
-            "**💎 Donador — 1 mes**\n"
-            "• Canal 💎・donadores y 🔊・donadores\n"
-            "• Radio Pudin y el panel completo\n"
-            "• Apodo con emoji\n"
-            "• Sorteos exclusivos\n\n"
-            "**🎨 Color de nombre — 2 meses seguidos**\n"
-            "• Elegís el color con el que aparecés\n\n"
-            "**👑 Color dorado — 5 meses seguidos**\n"
-            "• El color exclusivo, solo para los que no cortan\n\n"
-            "Tocá el botón y te abro un canal privado para hablar."
-        ),
+        description="\n".join(lineas),
         color=0xF1C40F,
     )
