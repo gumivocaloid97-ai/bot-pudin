@@ -41,6 +41,11 @@ except ModuleNotFoundError:
     comunidad = None
     tickets = None
 
+try:
+    import colores
+except ModuleNotFoundError:
+    colores = None
+
 GUILD_ID = 1575699459680112721
 SECTA_ID = 776821377800994826
 
@@ -199,6 +204,8 @@ async def _revisar_donadores(guild: discord.Guild) -> None:
                 except discord.Forbidden:
                     log.error("No pude quitar el rol donador a %s", miembro)
                     continue
+            if colores is not None:
+                await colores.quitar_colores(miembro)
             habitual = guild.get_role(ROL_HABITUAL)
             if habitual is not None and habitual not in miembro.roles:
                 try:
@@ -403,6 +410,11 @@ async def on_ready() -> None:
         tarea_cumples.start()
     if not tarea_contador.is_running():
         tarea_contador.start()
+    if colores is not None:
+        try:
+            client.add_view(colores.Selector())
+        except Exception as error:
+            log.warning("No pude registrar el selector de colores: %s", error)
     if tickets is not None:
         for vista in (tickets.PanelTicket(), tickets.CerrarTicket()):
             try:
@@ -927,6 +939,17 @@ async def comando_diagnostico(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+@tree.command(name="colores", description="Publica el menu de colores de nombre")
+@app_commands.default_permissions(administrator=True)
+async def comando_colores(interaction: discord.Interaction) -> None:
+    if colores is None:
+        await interaction.response.send_message("Falta el archivo colores.py.", ephemeral=True)
+        return
+    await interaction.response.send_message(
+        embed=colores.embed_panel(), view=colores.Selector()
+    )
+
+
 @tree.command(name="ticket-panel", description="Publica el panel de donaciones con el boton")
 @app_commands.default_permissions(administrator=True)
 async def comando_ticket_panel(interaction: discord.Interaction) -> None:
@@ -1407,7 +1430,7 @@ async def comando_ayuda(interaction: discord.Interaction) -> None:
         "Moderacion": "/borrar · /expulsar · /banear · /silenciar",
         "Sorteos": "/sorteo",
         "Comunidad": "/encuesta · /recordar · /cumple · /contador",
-        "Donadores": "/donador · /donadores · /ranking · /ticket-panel · /quitar-donador",
+        "Donadores": "/donador · /donadores · /ranking · /colores · /ticket-panel · /quitar-donador",
         "Utilidad": "/ping · /servidor · /usuario · /ayuda · /version · /actualizar · /diagnostico",
     }
     embed = discord.Embed(title="Bot Pudin v.2", description="Todo lo que puedo hacer", color=0xF1C40F)
