@@ -18,6 +18,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
+import actualizar
 import musica
 import niveles
 import salud
@@ -95,6 +96,15 @@ async def aplicar_recompensas(member: discord.Member, nivel_anterior: int, nivel
             )
 
 
+@tasks.loop(hours=2)
+async def revisar_actualizaciones() -> None:
+    if not await asyncio.to_thread(actualizar.buscar):
+        return
+    log.info("Actualizacion aplicada: reiniciando el bot")
+    await client.close()
+    actualizar.reiniciar()
+
+
 @client.event
 async def on_ready() -> None:
     log.info("Conectado como %s (%s)", client.user, client.user.id)
@@ -126,6 +136,8 @@ async def on_ready() -> None:
         tarea_voz.start()
     if not tarea_circulos.is_running():
         tarea_circulos.start()
+    if not revisar_actualizaciones.is_running():
+        revisar_actualizaciones.start()
 
 
 @client.event
@@ -653,8 +665,6 @@ async def comando_probar(interaction: discord.Interaction) -> None:
 
 
 if __name__ == "__main__":
-    import actualizar
-
     if actualizar.buscar():
         actualizar.reiniciar()
     salud.iniciar()
