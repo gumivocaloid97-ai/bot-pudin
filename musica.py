@@ -5,6 +5,7 @@ import json
 import unicodedata
 import logging
 import os
+import random
 import shlex
 import shutil
 import tempfile
@@ -397,6 +398,28 @@ class Panel(discord.ui.View):
             return
         await interaction.response.send_message(self.reproductor.texto_cola(), ephemeral=True)
 
+    @discord.ui.button(
+        label="Repetir: no", emoji="🔁", style=discord.ButtonStyle.secondary,
+        custom_id="pudin_repetir", row=3,
+    )
+    async def repetir(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await self.puede_usar(interaction):
+            return
+        await interaction.response.defer()
+        await self.reproductor.ciclo_repeticion()
+        await self.refrescar(interaction)
+
+    @discord.ui.button(
+        label="Aleatorio: no", emoji="🔀", style=discord.ButtonStyle.secondary,
+        custom_id="pudin_aleatorio", row=3,
+    )
+    async def aleatorio(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await self.puede_usar(interaction):
+            return
+        await interaction.response.defer()
+        await self.reproductor.alternar_aleatorio()
+        await self.refrescar(interaction)
+
     @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="pudin_siguiente", row=3)
     async def siguiente(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await self.puede_usar(interaction):
@@ -418,6 +441,10 @@ class Reproductor:
         self.canal_texto: discord.abc.Messageable | None = None
         self.panel: discord.Message | None = None
         self.panel_donadores: discord.Message | None = None
+        self.repeticion = "no"  # no | tema | cola
+        self.aleatorio = False
+        self.historial: list[Pista] = []
+        self._salteado = False
         self.vista = Panel(self)
         self.fuente: discord.PCMVolumeTransformer | None = None
         self.volumen = 1.0
@@ -537,6 +564,8 @@ class Reproductor:
         for pista in pistas:
             pista.pedido_por = autor
             self.cola.append(pista)
+        if self.aleatorio:
+            self.mezclar()
         self.canal_texto = self.canal_para_panel(canal_texto)
         if not (self.voz and (self.voz.is_playing() or self.voz.is_paused())):
             await self._avanzar()
@@ -605,6 +634,15 @@ class Reproductor:
             lineas.append(f"Pedido por {self.actual.pedido_por}")
         if self.cola:
             lineas.append(f"En cola: {len(self.cola)}")
+        modo = []
+        if self.repeticion == "tema":
+            modo.append("🔂 repitiendo tema")
+        elif self.repeticion == "cola":
+            modo.append("🔁 repitiendo cola")
+        if self.aleatorio:
+            modo.append("🔀 aleatorio")
+        if modo:
+            lineas.append(" · ".join(modo))
         return "\n".join(lineas)
 
     def guardar_estado(self) -> None:
@@ -616,6 +654,8 @@ class Reproductor:
             "voz": self.canal_voz.id,
             "texto": getattr(self.canal_texto, "id", None),
             "volumen": self.volumen,
+            "repeticion": self.repeticion,
+            "aleatorio": self.aleatorio,
             "actual": {
                 "consulta": self.actual.consulta,
                 "titulo": self.actual.titulo,
@@ -669,6 +709,8 @@ class Reproductor:
 
         self.canal_texto = guild.get_channel(datos.get("texto") or 0) or canal_voz
         self.volumen = float(datos.get("volumen") or 1.0)
+        self.repeticion = datos.get("repeticion") or "no"
+        self.aleatorio = bool(datos.get("aleatorio"))
         conectado = False
         for intento in range(1, 4):
             try:
@@ -758,6 +800,26 @@ class Reproductor:
         if volumen is not None:
             for opcion in volumen.options:
                 opcion.default = abs(float(opcion.value) - self.volumen) < 0.01
+        repetir = discord.utils.get(vista.children, custom_id="pudin_repetir")
+        if repetir is not None:
+            if self.repeticion == "tema":
+                repetir.label = "Repetir: tema"
+                repetir.emoji = "🔂"
+                repetir.style = discord.ButtonStyle.success
+            elif self.repeticion == "cola":
+                repetir.label = "Repetir: cola"
+                repetir.emoji = "🔁"
+                repetir.style = discord.ButtonStyle.success
+            else:
+                repetir.label = "Repetir: no"
+                repetir.emoji = "🔁"
+                repetir.style = discord.ButtonStyle.secondary
+        azar = discord.utils.get(vista.children, custom_id="pudin_aleatorio")
+        if azar is not None:
+            azar.label = f"Aleatorio: {'si' if self.aleatorio else 'no'}"
+            azar.style = (
+                discord.ButtonStyle.success if self.aleatorio else discord.ButtonStyle.secondary
+            )
 
     def texto_panel(self) -> str:
         return self._texto_panel()
@@ -866,6 +928,8 @@ class Reproductor:
 
     def _borrar_actual(self) -> None:
         if self.actual and self.actual.archivo and self.actual.archivo.exists():
+            if any(pista is self.actual for pista in self.cola):
+                return
             try:
                 self.actual.archivo.unlink()
             except OSError:
@@ -876,7 +940,9 @@ class Reproductor:
             return
         self._avanzando = True
         try:
-            while self.cola:
+            while True:
+                if not self.cola and not self._reponer():
+                    break
                 if self.voz is None or not self.voz.is_connected():
                     self.actual = None
                     await self.actualizar_panel()
@@ -892,6 +958,9 @@ class Reproductor:
                 self._borrar_actual()
                 pista = self.cola.popleft()
                 self.actual = pista
+                self._salteado = False
+                self.historial.append(pista)
+                del self.historial[:-50]
                 self._cargando = True
                 try:
                     await self._mostrar_panel()
@@ -1047,14 +1116,51 @@ class Reproductor:
     async def mover(self, delta: float) -> str:
         return await self.saltar_a(self._transcurrido() + delta)
 
+    async def ciclo_repeticion(self) -> str:
+        orden = ["no", "tema", "cola"]
+        self.repeticion = orden[(orden.index(self.repeticion) + 1) % len(orden)]
+        await self.actualizar_panel()
+        return self.repeticion
+
+    async def alternar_aleatorio(self) -> bool:
+        self.aleatorio = not self.aleatorio
+        if self.aleatorio:
+            self.mezclar()
+        await self.actualizar_panel()
+        return self.aleatorio
+
+    def mezclar(self) -> None:
+        lista = list(self.cola)
+        random.shuffle(lista)
+        self.cola.clear()
+        self.cola.extend(lista)
+
+    def _reponer(self) -> bool:
+        """Llena la cola segun el modo de repeticion. False si no hay mas nada."""
+        if self._salteado:
+            self._salteado = False
+            return False
+        if self.repeticion == "tema" and self.actual is not None:
+            self.cola.append(self.actual)
+            return True
+        if self.repeticion == "cola" and self.historial:
+            self.cola.extend(self.historial)
+            self.historial.clear()
+            if self.aleatorio:
+                self.mezclar()
+            return True
+        return False
+
     async def saltar(self) -> str | None:
         anterior = self.actual.titulo if self.actual else None
+        self._salteado = True
         if self.voz and (self.voz.is_playing() or self.voz.is_paused()):
             self.voz.stop()
         return anterior
 
     async def detener(self) -> None:
         self.cola.clear()
+        self.historial.clear()
         if self.voz and (self.voz.is_playing() or self.voz.is_paused()):
             self.voz.stop()
         self.actual = None
