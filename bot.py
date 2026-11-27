@@ -22,6 +22,7 @@ import actualizar
 import musica
 import niveles
 import salud
+import vigilancia
 
 GUILD_ID = 1575699459680112721
 SECTA_ID = 776821377800994826
@@ -41,6 +42,9 @@ CIRCULOS = [
 ROL_ENTRADA = 1575699459680112723  # Los pudins
 CANAL_BIENVENIDA = 1575724591811399690
 CANAL_GENERAL = 1575699461777260645
+CANAL_REGISTRO = 1575850818802810961  # 📋・registro (staff)
+
+ANTISPAM = vigilancia.AntiSpam()
 
 XP_MENSAJE_MIN = 15
 XP_MENSAJE_MAX = 25
@@ -68,11 +72,60 @@ intents = discord.Intents.none()
 intents.guilds = True
 intents.members = True
 intents.messages = True
+intents.message_content = True
 intents.voice_states = True
+intents.bans = True
 
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 db = niveles.conectar()
+
+
+async def registrar(guild: discord.Guild, titulo: str, detalle: str, color: int = 0x95A5A6) -> None:
+    canal = guild.get_channel(CANAL_REGISTRO)
+    if canal is None:
+        return
+    embed = discord.Embed(
+        title=titulo,
+        description=detalle[:2000],
+        color=color,
+        timestamp=datetime.datetime.now(datetime.timezone.utc),
+    )
+    try:
+        await canal.send(embed=embed)
+    except discord.HTTPException:
+        pass
+
+
+async def vigilar(message: discord.Message) -> bool:
+    """Borra el mensaje si rompe las reglas. Devuelve True si lo borro."""
+    if vigilancia.es_staff(message.author):
+        return False
+    if vigilancia.canal_sin_filtro(getattr(message.channel, "name", "")):
+        return False
+    texto = message.content or ""
+    motivo = vigilancia.motivo_bloqueo(texto)
+    if motivo is None and ANTISPAM.es_spam(message.author.id):
+        motivo = "muchos mensajes seguidos"
+    if motivo is None:
+        return False
+    try:
+        await message.delete()
+    except discord.HTTPException:
+        pass
+    try:
+        await message.channel.send(
+            f"{message.author.mention}, te borre el mensaje: {motivo}.", delete_after=8
+        )
+    except discord.HTTPException:
+        pass
+    await registrar(
+        message.guild,
+        "Auto-moderacion",
+        f"**{message.author}** en {message.channel.mention}: {motivo}\n>>> {(texto or '(sin texto)')[:400]}",
+        0xE74C3C,
+    )
+    return True
 
 
 async def aplicar_recompensas(member: discord.Member, nivel_anterior: int, nivel_nuevo: int) -> None:
@@ -265,16 +318,86 @@ async def antes_de_circulos() -> None:
 
 @client.event
 async def on_member_join(member: discord.Member) -> None:
+    if member.bot:
+        return
+    pendiente = " (falta aceptar las reglas)" if member.pending else ""
+    await registrar(member.guild, "Entro un miembro", f"{member.mention} `{member}`{pendiente}", 0x2ECC71)
     # con el filtro de entrada la bienvenida espera a que acepte las reglas
-    if member.bot or member.pending:
+    if member.pending:
         return
     await recibir_miembro(member)
 
 
 @client.event
+async def on_member_remove(member: discord.Member) -> None:
+    if member.bot:
+        return
+    await registrar(member.guild, "Salio un miembro", f"{member} `{member.id}`", 0xE74C3C)
+
+
+@client.event
 async def on_member_update(antes: discord.Member, despues: discord.Member) -> None:
-    if antes.pending and not despues.pending and not despues.bot:
+    if despues.bot:
+        return
+    if antes.pending and not despues.pending:
+        await registrar(despues.guild, "Acepto las reglas", f"{despues.mention} `{despues}`", 0x2ECC71)
         await recibir_miembro(despues)
+        return
+    if antes.nick != despues.nick:
+        await registrar(
+            despues.guild,
+            "Cambio de apodo",
+            f"{despues.mention}: `{antes.nick}` -> `{despues.nick}`",
+        )
+    antes_ids = {rol.id for rol in antes.roles}
+    despues_ids = {rol.id for rol in despues.roles}
+    if antes_ids != despues_ids:
+        nuevos = [rol.mention for rol in despues.roles if rol.id not in antes_ids]
+        quitados = [rol.mention for rol in antes.roles if rol.id not in despues_ids]
+        partes = []
+        if nuevos:
+            partes.append("+ " + ", ".join(nuevos))
+        if quitados:
+            partes.append("- " + ", ".join(quitados))
+        await registrar(despues.guild, "Cambio de roles", f"{despues.mention}\n" + "\n".join(partes))
+
+
+@client.event
+async def on_message_delete(message: discord.Message) -> None:
+    if message.guild is None or message.author.bot:
+        return
+    if message.channel.id == CANAL_REGISTRO:
+        return
+    texto = (message.content or "(sin texto)")[:600]
+    await registrar(
+        message.guild,
+        "Mensaje borrado",
+        f"**{message.author}** en {message.channel.mention}\n>>> {texto}",
+        0xE67E22,
+    )
+
+
+@client.event
+async def on_bulk_message_delete(mensajes) -> None:
+    lista = list(mensajes)
+    if not lista or lista[0].guild is None:
+        return
+    await registrar(
+        lista[0].guild,
+        "Borrado masivo",
+        f"{len(lista)} mensajes en {lista[0].channel.mention}",
+        0xE67E22,
+    )
+
+
+@client.event
+async def on_member_ban(guild: discord.Guild, user: discord.User) -> None:
+    await registrar(guild, "Baneo", f"{user} `{user.id}`", 0x992D22)
+
+
+@client.event
+async def on_member_unban(guild: discord.Guild, user: discord.User) -> None:
+    await registrar(guild, "Desbaneo", f"{user} `{user.id}`", 0x2ECC71)
 
 
 async def recibir_miembro(member: discord.Member) -> None:
@@ -318,6 +441,8 @@ async def on_message(message: discord.Message) -> None:
     if message.guild is None:
         return
     if message.author.bot:
+        return
+    if await vigilar(message):
         return
     if not niveles.puede_ganar_por_mensaje(
         db, message.guild.id, message.author.id, ENFRIAMIENTO_MENSAJE
@@ -373,6 +498,83 @@ async def comando_version(interaction: discord.Interaction) -> None:
     embed = discord.Embed(title="Bot Pudin v2", description=f"Version **{texto}**", color=0xF1C40F)
     embed.set_footer(text="Se actualiza sola desde GitHub al arrancar")
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class Sorteo(discord.ui.View):
+    """Boton para anotarse en un sorteo."""
+
+    def __init__(self, premio: str, solo_donadores: bool) -> None:
+        super().__init__(timeout=None)
+        self.premio = premio
+        self.solo_donadores = solo_donadores
+        self.participantes: dict[int, str] = {}
+        boton = discord.ui.Button(
+            label="Participar",
+            emoji="🎉",
+            style=discord.ButtonStyle.success,
+            custom_id=f"pudin_sorteo_{int(time.time() * 1000)}",
+        )
+        boton.callback = self.participar
+        self.add_item(boton)
+
+    async def participar(self, interaction: discord.Interaction) -> None:
+        if self.solo_donadores and not musica.es_donador(interaction.user):
+            await interaction.response.send_message(
+                "Este sorteo es solo para 💎 Donador.", ephemeral=True
+            )
+            return
+        if interaction.user.id in self.participantes:
+            await interaction.response.send_message("Ya estas participando 🍮", ephemeral=True)
+            return
+        self.participantes[interaction.user.id] = interaction.user.display_name
+        await interaction.response.send_message(
+            f"Estas dentro. Ya somos {len(self.participantes)} 🍮", ephemeral=True
+        )
+
+
+@tree.command(name="sorteo", description="Arma un sorteo con boton de participar")
+@app_commands.describe(
+    premio="Que se sortea",
+    minutos="Cuanto dura el sorteo",
+    solo_donadores="Solo 💎 Donador puede participar",
+)
+@app_commands.default_permissions(manage_guild=True)
+async def comando_sorteo(
+    interaction: discord.Interaction,
+    premio: str,
+    minutos: int = 60,
+    solo_donadores: bool = False,
+) -> None:
+    minutos = max(1, min(minutos, 60 * 24 * 7))
+    vista = Sorteo(premio, solo_donadores)
+    embed = discord.Embed(title="🎉 Sorteo", description=f"**{premio}**", color=0xF1C40F)
+    embed.add_field(name="Cómo participar", value="Tocá el botón de abajo.")
+    embed.add_field(name="Termina", value=f"<t:{int(time.time()) + minutos * 60}:R>")
+    if solo_donadores:
+        embed.add_field(name="Requisito", value="💎 Donador", inline=False)
+    embed.set_footer(text="Suerte 🍮")
+    await interaction.response.send_message(embed=embed, view=vista)
+    mensaje = await interaction.original_response()
+
+    await asyncio.sleep(minutos * 60)
+
+    for hijo in vista.children:
+        hijo.disabled = True
+    if not vista.participantes:
+        embed.description = f"**{premio}**\n\nNadie participó."
+        embed.color = 0x95A5A6
+        ganador = None
+    else:
+        ganador_id, _ = random.choice(list(vista.participantes.items()))
+        ganador = f"<@{ganador_id}>"
+        embed.description = f"**{premio}**\n\nGanador: {ganador}"
+        embed.color = 0x2ECC71
+    try:
+        await mensaje.edit(embed=embed, view=vista)
+        if ganador:
+            await mensaje.reply(f"🎉 {ganador} ganó **{premio}**.")
+    except discord.HTTPException:
+        pass
 
 
 @tree.command(name="actualizar", description="Busca actualizaciones del bot ahora mismo")
@@ -695,7 +897,8 @@ async def comando_ayuda(interaction: discord.Interaction) -> None:
         "Niveles": "/nivel · /top",
         "Musica": "/play · /cola · /pausa · /saltar · /parar · /salir · /panel",
         "Moderacion": "/borrar · /expulsar · /banear · /silenciar",
-        "Utilidad": "/ping · /servidor · /usuario · /ayuda",
+        "Sorteos": "/sorteo",
+        "Utilidad": "/ping · /servidor · /usuario · /ayuda · /version · /actualizar",
     }
     embed = discord.Embed(title="Bot Pudin v.2", description="Todo lo que puedo hacer", color=0xF1C40F)
     for nombre, lista in grupos.items():
