@@ -6,6 +6,7 @@
 """
 
 import asyncio
+from datetime import date
 import datetime
 import logging
 import unicodedata
@@ -32,6 +33,13 @@ try:
     import donaciones
 except ModuleNotFoundError:
     donaciones = None
+
+try:
+    import comunidad
+    import tickets
+except ModuleNotFoundError:
+    comunidad = None
+    tickets = None
 
 GUILD_ID = 1575699459680112721
 SECTA_ID = 776821377800994826
@@ -225,6 +233,91 @@ async def _revisar_donadores(guild: discord.Guild) -> None:
                 pass
 
 
+@tasks.loop(seconds=30)
+async def tarea_recordatorios() -> None:
+    if comunidad is None:
+        return
+    for aviso in comunidad.recordatorios_vencidos():
+        comunidad.borrar_recordatorio(aviso["id"])
+        texto = f"⏰ Te lo prometi: **{aviso['texto']}**"
+        usuario = client.get_user(aviso["usuario"])
+        enviado = False
+        if usuario is not None:
+            try:
+                await usuario.send(texto)
+                enviado = True
+            except discord.HTTPException:
+                pass
+        if not enviado and aviso.get("canal"):
+            canal = client.get_channel(aviso["canal"])
+            if canal is not None:
+                try:
+                    await canal.send(
+                        f"<@{aviso['usuario']}> {texto}",
+                        allowed_mentions=discord.AllowedMentions(users=True),
+                    )
+                except discord.HTTPException:
+                    pass
+
+
+@tarea_recordatorios.before_loop
+async def antes_de_recordatorios() -> None:
+    await client.wait_until_ready()
+
+
+@tasks.loop(minutes=30)
+async def tarea_cumples() -> None:
+    if comunidad is None:
+        return
+    hoy = date.today()
+    for guild in client.guilds:
+        canal = guild.get_channel(CANAL_GENERAL) if guild.id == GUILD_ID else None
+        for usuario_id in comunidad.cumples_pendientes(guild.id, hoy):
+            if canal is not None:
+                embed = discord.Embed(
+                    title="🎂 Feliz cumpleanos",
+                    description=f"<@{usuario_id}> esta de cumpleanos hoy. Saludalo!",
+                    color=0xE91E63,
+                )
+                try:
+                    await canal.send(
+                        embed=embed, allowed_mentions=discord.AllowedMentions(users=True)
+                    )
+                except discord.HTTPException:
+                    continue
+            comunidad.marcar_cumple_anunciado(guild.id, usuario_id, hoy)
+
+
+@tarea_cumples.before_loop
+async def antes_de_cumples() -> None:
+    await client.wait_until_ready()
+
+
+@tasks.loop(minutes=10)
+async def tarea_contador() -> None:
+    if comunidad is None:
+        return
+    for guild in client.guilds:
+        canal_id = comunidad.canal_contador(guild.id)
+        if not canal_id:
+            continue
+        canal = guild.get_channel(canal_id)
+        if canal is None:
+            continue
+        nuevo = comunidad.nombre_contador(guild)
+        if canal.name == nuevo:
+            continue
+        try:
+            await canal.edit(name=nuevo, reason="Contador de miembros")
+        except discord.HTTPException as error:
+            log.warning("No pude renombrar el contador: %s", error)
+
+
+@tarea_contador.before_loop
+async def antes_de_contador() -> None:
+    await client.wait_until_ready()
+
+
 @tasks.loop(minutes=30)
 async def revisar_actualizaciones() -> None:
     if any(rep.esta_sonando() for rep in reproductores.values()):
@@ -304,6 +397,22 @@ async def on_ready() -> None:
         revisar_actualizaciones.start()
     if not tarea_donadores.is_running():
         tarea_donadores.start()
+    if not tarea_recordatorios.is_running():
+        tarea_recordatorios.start()
+    if not tarea_cumples.is_running():
+        tarea_cumples.start()
+    if not tarea_contador.is_running():
+        tarea_contador.start()
+    if tickets is not None:
+        for vista in (tickets.PanelTicket(), tickets.CerrarTicket()):
+            try:
+                client.add_view(vista)
+            except Exception as error:
+                log.warning("No pude registrar la vista de tickets: %s", error)
+    if comunidad is not None:
+        cuantas = comunidad.registrar_vistas(client)
+        if cuantas:
+            log.info("Encuestas restauradas: %s", cuantas)
 
     client.loop.create_task(_retomar_musica())
 
@@ -536,8 +645,17 @@ async def recibir_miembro(member: discord.Member) -> None:
     if general is not None:
         embed.add_field(name="Empeza por aca", value=general.mention, inline=True)
     embed.set_thumbnail(url=member.display_avatar.url)
+    tarjeta = None
+    if comunidad is not None:
+        tarjeta = await comunidad.tarjeta_bienvenida(member, guild.member_count or 0)
+    if tarjeta is not None:
+        embed.set_image(url="attachment://bienvenida.png")
     try:
-        await canal.send(embed=embed, allowed_mentions=discord.AllowedMentions(users=True))
+        await canal.send(
+            embed=embed,
+            file=tarjeta,
+            allowed_mentions=discord.AllowedMentions(users=True),
+        )
     except discord.Forbidden:
         log.error("Sin permisos para escribir en %s", canal.name)
 
@@ -739,7 +857,13 @@ async def comando_donadores(interaction: discord.Interaction) -> None:
     lineas = []
     for user_id, vence_en, _ in filas:
         dias = donaciones.dias_restantes(vence_en)
-        lineas.append(f"<@{user_id}> — {dias} dias (vence <t:{int(vence_en)}:D>)")
+        pagos = donaciones.pagos_de(db_donadores, interaction.guild.id, user_id)
+        total = sum(pago[0] for pago in pagos)
+        veces = len(pagos)
+        lineas.append(
+            f"<@{user_id}> — {dias} dias (vence <t:{int(vence_en)}:D>) · "
+            f"{veces} pago{'s' if veces != 1 else ''} · {total} dias en total"
+        )
     embed = discord.Embed(title="💎 Donadores", description="\n".join(lineas), color=0xF1C40F)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -801,6 +925,136 @@ async def comando_diagnostico(interaction: discord.Interaction) -> None:
     lineas.append(f"**Estado guardado:** {'si' if guardado else 'no'}")
     embed = discord.Embed(title="🔍 Diagnostico", description="\n".join(lineas), color=0x3498DB)
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@tree.command(name="ticket-panel", description="Publica el panel de donaciones con el boton")
+@app_commands.default_permissions(administrator=True)
+async def comando_ticket_panel(interaction: discord.Interaction) -> None:
+    if tickets is None:
+        await interaction.response.send_message("Falta el archivo tickets.py.", ephemeral=True)
+        return
+    await interaction.response.send_message(
+        embed=tickets.embed_panel(), view=tickets.PanelTicket()
+    )
+
+
+@tree.command(name="ranking", description="Ranking de donadores del servidor")
+async def comando_ranking(interaction: discord.Interaction) -> None:
+    if db_donadores is None:
+        await interaction.response.send_message("Falta el archivo donaciones.py.", ephemeral=True)
+        return
+    filas = donaciones.resumen(db_donadores, interaction.guild.id)
+    if not filas:
+        await interaction.response.send_message(
+            "Todavia no hay donaciones anotadas.", ephemeral=True
+        )
+        return
+    medallas = ["🥇", "🥈", "🥉"]
+    lineas = []
+    for puesto, (user_id, total, veces, _ultimo) in enumerate(filas[:10]):
+        marca = medallas[puesto] if puesto < 3 else f"`{puesto + 1}.`"
+        pagos = "pago" if veces == 1 else "pagos"
+        lineas.append(f"{marca} <@{user_id}> — **{total} dias** en {veces} {pagos}")
+    embed = discord.Embed(
+        title="🏆 Donadores",
+        description="\n".join(lineas),
+        color=0xF1C40F,
+    )
+    embed.set_footer(text="Gracias por bancar el servidor 🍮")
+    await interaction.response.send_message(embed=embed)
+
+
+@tree.command(name="encuesta", description="Crea una encuesta con botones")
+@app_commands.describe(pregunta="La pregunta", opciones="Opciones separadas con |")
+async def comando_encuesta(
+    interaction: discord.Interaction, pregunta: str, opciones: str
+) -> None:
+    if comunidad is None:
+        await interaction.response.send_message("Falta el archivo comunidad.py.", ephemeral=True)
+        return
+    lista = [opcion.strip() for opcion in opciones.split("|") if opcion.strip()]
+    if len(lista) < 2:
+        await interaction.response.send_message(
+            "Pone al menos 2 opciones separadas con `|`.\n"
+            "Ejemplo: `Minecraft | Valorant | CS2`",
+            ephemeral=True,
+        )
+        return
+    lista = lista[:5]
+    ident = comunidad.crear_encuesta(pregunta, lista, interaction.user.display_name)
+    embed = comunidad.embed_encuesta(ident)
+    await interaction.response.send_message(
+        embed=embed, view=comunidad.VistaEncuesta(ident)
+    )
+
+
+@tree.command(name="recordar", description="Te aviso en un rato")
+@app_commands.describe(tiempo="Ejemplo: 10m, 2h, 1d", mensaje="De que te tengo que avisar")
+async def comando_recordar(
+    interaction: discord.Interaction, tiempo: str, mensaje: str
+) -> None:
+    if comunidad is None:
+        await interaction.response.send_message("Falta el archivo comunidad.py.", ephemeral=True)
+        return
+    segundos = comunidad.leer_duracion(tiempo)
+    if not segundos or segundos < 10:
+        await interaction.response.send_message(
+            "Usa algo como `10m`, `2h` o `1d`.", ephemeral=True
+        )
+        return
+    cuando = time.time() + segundos
+    comunidad.agregar_recordatorio(
+        interaction.user.id, interaction.channel_id, interaction.guild_id, cuando, mensaje
+    )
+    await interaction.response.send_message(
+        f"Listo. Te aviso <t:{int(cuando)}:R> ({tiempo}).", ephemeral=True
+    )
+
+
+@tree.command(name="cumple", description="Guarda tu cumpleanos")
+@app_commands.describe(fecha="Dia y mes, por ejemplo 15/03")
+async def comando_cumple(interaction: discord.Interaction, fecha: str) -> None:
+    if comunidad is None:
+        await interaction.response.send_message("Falta el archivo comunidad.py.", ephemeral=True)
+        return
+    try:
+        dia, mes = [int(parte) for parte in fecha.replace("-", "/").split("/")]
+        date(2024, mes, dia)
+    except Exception:
+        await interaction.response.send_message(
+            "Pone la fecha asi: `15/03` (dia/mes).", ephemeral=True
+        )
+        return
+    comunidad.guardar_cumple(interaction.guild_id, interaction.user.id, dia, mes)
+    await interaction.response.send_message(
+        f"Anotado: **{dia:02d}/{mes:02d}** 🎂", ephemeral=True
+    )
+
+
+@tree.command(name="contador", description="Canal que muestra la cantidad de miembros")
+@app_commands.describe(canal="Canal a renombrar (vacio para apagarlo)")
+@app_commands.default_permissions(administrator=True)
+async def comando_contador(
+    interaction: discord.Interaction, canal: discord.VoiceChannel | None = None
+) -> None:
+    if comunidad is None:
+        await interaction.response.send_message("Falta el archivo comunidad.py.", ephemeral=True)
+        return
+    if canal is None:
+        comunidad.guardar_canal_contador(interaction.guild_id, None)
+        await interaction.response.send_message("Contador apagado.", ephemeral=True)
+        return
+    comunidad.guardar_canal_contador(interaction.guild_id, canal.id)
+    try:
+        await canal.edit(name=comunidad.nombre_contador(interaction.guild), reason="Contador")
+    except discord.HTTPException as error:
+        await interaction.response.send_message(
+            f"No pude renombrar el canal: `{error}`", ephemeral=True
+        )
+        return
+    await interaction.response.send_message(
+        f"Listo, voy a mantener {canal.mention} actualizado.", ephemeral=True
+    )
 
 
 @tree.command(name="actualizar", description="Busca actualizaciones del bot ahora mismo")
@@ -1152,7 +1406,8 @@ async def comando_ayuda(interaction: discord.Interaction) -> None:
         "Musica": "/play · /controles · /cola · /pausa · /saltar · /parar · /salir · /panel",
         "Moderacion": "/borrar · /expulsar · /banear · /silenciar",
         "Sorteos": "/sorteo",
-        "Donadores": "/donador · /donadores · /quitar-donador",
+        "Comunidad": "/encuesta · /recordar · /cumple · /contador",
+        "Donadores": "/donador · /donadores · /ranking · /ticket-panel · /quitar-donador",
         "Utilidad": "/ping · /servidor · /usuario · /ayuda · /version · /actualizar · /diagnostico",
     }
     embed = discord.Embed(title="Bot Pudin v.2", description="Todo lo que puedo hacer", color=0xF1C40F)
