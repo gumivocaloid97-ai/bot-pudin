@@ -51,6 +51,11 @@ try:
 except ModuleNotFoundError:
     edad = None
 
+try:
+    import radio
+except ModuleNotFoundError:
+    radio = None
+
 GUILD_ID = 1575699459680112721
 SECTA_ID = 776821377800994826
 
@@ -473,6 +478,8 @@ async def on_ready() -> None:
         tarea_cumples.start()
     if not tarea_contador.is_running():
         tarea_contador.start()
+    if radio is not None and not tarea_radio.is_running():
+        tarea_radio.start()
     for servidor in client.guilds:
         for miembro in servidor.members:
             if miembro.premium_since is not None:
@@ -818,6 +825,22 @@ async def on_message(message: discord.Message) -> None:
         log.info("%s subio a nivel %s", message.author, nuevo)
         await aplicar_recompensas(message.author, anterior, nuevo)
         await aplicar_circulo(message.author)
+
+
+@tasks.loop(minutes=1)
+async def tarea_radio() -> None:
+    if radio is None:
+        return
+    for guild in client.guilds:
+        try:
+            await radio.revisar(guild, reproductor_de(guild))
+        except Exception as error:
+            log.error("Fallo la radio en %s: %s", guild.name, error)
+
+
+@tarea_radio.before_loop
+async def antes_de_radio() -> None:
+    await client.wait_until_ready()
 
 
 @tasks.loop(minutes=1)
@@ -1232,6 +1255,115 @@ async def comando_edad(
     await interaction.response.send_message(
         f"{miembro.mention} quedo como **{nombre}**.", ephemeral=True
     )
+
+
+@tree.command(name="radio-fija", description="Programa el dia y la hora de la radio semanal")
+@app_commands.describe(
+    dia="Que dia",
+    hora="A que hora (0 a 23), hora argentina",
+    minuto="Minuto (por defecto 0)",
+    activo="Prender o apagar la radio automatica",
+    aviso="Cuantos minutos antes avisar (0 = sin aviso)",
+)
+@app_commands.choices(
+    dia=[app_commands.Choice(name=d.capitalize(), value=i) for i, d in enumerate(radio.DIAS)]
+    if radio
+    else []
+)
+@app_commands.default_permissions(administrator=True)
+async def comando_radio_fija(
+    interaction: discord.Interaction,
+    dia: app_commands.Choice[int],
+    hora: app_commands.Range[int, 0, 23],
+    minuto: app_commands.Range[int, 0, 59] = 0,
+    activo: bool = True,
+    aviso: app_commands.Range[int, 0, 720] = 60,
+) -> None:
+    if radio is None:
+        await interaction.response.send_message("Falta el archivo radio.py.", ephemeral=True)
+        return
+    datos = radio.cargar()
+    datos.update({
+        "dia": dia.value, "hora": hora, "minuto": minuto,
+        "activo": activo, "aviso": aviso,
+        "ultimo_aviso": "", "ultimo_arranque": "",
+    })
+    radio.guardar(datos)
+    proxima = radio.proxima(datos)
+    await interaction.response.send_message(
+        f"Radio {'programada' if activo else 'apagada'} para **{radio.cuando(datos)}** "
+        f"(hora argentina).\n"
+        f"Proxima: <t:{int(proxima.timestamp())}:F>\n"
+        f"Aviso previo: {'no' if not aviso else str(aviso) + ' minutos antes'}",
+        ephemeral=True,
+    )
+
+
+@tree.command(name="radio-ahora", description="Arranca la radio ahora mismo (para probar)")
+@app_commands.default_permissions(administrator=True)
+async def comando_radio_ahora(interaction: discord.Interaction) -> None:
+    if radio is None:
+        await interaction.response.send_message("Falta el archivo radio.py.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    datos = radio.cargar()
+    resultado = await radio.arrancar(interaction.guild, reproductor_de(interaction.guild), datos)
+    await interaction.followup.send(f"Radio: {resultado}.", ephemeral=True)
+
+
+@tree.command(name="radio-tema", description="Agrega, saca o lista los temas de la radio")
+@app_commands.describe(accion="Que hacer", tema="El tema (link o nombre)")
+@app_commands.choices(
+    accion=[
+        app_commands.Choice(name="Agregar", value="agregar"),
+        app_commands.Choice(name="Sacar", value="sacar"),
+        app_commands.Choice(name="Ver lista", value="ver"),
+    ]
+)
+@app_commands.default_permissions(administrator=True)
+async def comando_radio_tema(
+    interaction: discord.Interaction,
+    accion: app_commands.Choice[str],
+    tema: str = "",
+) -> None:
+    if radio is None:
+        await interaction.response.send_message("Falta el archivo radio.py.", ephemeral=True)
+        return
+    datos = radio.cargar()
+    temas = datos["temas"]
+
+    if accion.value == "ver":
+        if not temas:
+            await interaction.response.send_message("La radio no tiene temas.", ephemeral=True)
+            return
+        lista = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(temas))
+        await interaction.response.send_message(
+            f"**Temas de la radio ({len(temas)}):**\n{lista}"[:1900], ephemeral=True
+        )
+        return
+
+    if not tema:
+        await interaction.response.send_message("Falta el tema.", ephemeral=True)
+        return
+
+    if accion.value == "agregar":
+        if tema in temas:
+            await interaction.response.send_message("Ese tema ya está.", ephemeral=True)
+            return
+        temas.append(tema)
+        radio.guardar(datos)
+        await interaction.response.send_message(
+            f"Agregado. La radio tiene {len(temas)} temas.", ephemeral=True
+        )
+        return
+
+    encontrado = next((t for t in temas if tema.lower() in t.lower()), None)
+    if encontrado is None:
+        await interaction.response.send_message("No lo encontré en la lista.", ephemeral=True)
+        return
+    temas.remove(encontrado)
+    radio.guardar(datos)
+    await interaction.response.send_message(f"Saque `{encontrado}`.", ephemeral=True)
 
 
 @tree.command(name="comandos", description="Muestra la guia de comandos del servidor")
@@ -1733,6 +1865,7 @@ async def comando_ayuda(interaction: discord.Interaction) -> None:
         "Comunidad": "/encuesta · /recordar · /cumple · /contador",
         "Guia completa": "mira el canal #comandos",
         "Edad": "elegí +18 o -18 en el canal de edad",
+        "Radio": "/radio-fija para el dia y la hora",
         "Grooming": "/ban-grooming @alguien (staff) - banea al instante",
         "Donadores": "/donador · /donadores · /ranking · /colores · /ticket-panel · /quitar-donador",
         "Utilidad": "/ping · /servidor · /usuario · /ayuda · /version · /actualizar · /diagnostico",
