@@ -24,12 +24,28 @@ def conectar() -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pagos (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            user_id  INTEGER NOT NULL,
+            dias     INTEGER NOT NULL,
+            fecha    REAL    NOT NULL,
+            quien    INTEGER
+        )
+        """
+    )
     conn.commit()
     return conn
 
 
 def otorgar(
-    conn: sqlite3.Connection, guild_id: int, user_id: int, dias: int = DIAS_POR_DEFECTO
+    conn: sqlite3.Connection,
+    guild_id: int,
+    user_id: int,
+    dias: int = DIAS_POR_DEFECTO,
+    quien: int | None = None,
 ) -> float:
     """Suma dias desde hoy, o desde el vencimiento si todavia le queda."""
     ahora = time.time()
@@ -43,6 +59,10 @@ def otorgar(
         ON CONFLICT (guild_id, user_id) DO UPDATE SET vence = ?, avisado = 0
         """,
         (guild_id, user_id, nuevo, nuevo),
+    )
+    conn.execute(
+        "INSERT INTO pagos (guild_id, user_id, dias, fecha, quien) VALUES (?, ?, ?, ?, ?)",
+        (guild_id, user_id, dias, time.time(), quien),
     )
     conn.commit()
     return nuevo
@@ -77,6 +97,25 @@ def quitar(conn: sqlite3.Connection, guild_id: int, user_id: int) -> None:
         (guild_id, user_id),
     )
     conn.commit()
+
+
+def pagos_de(conn: sqlite3.Connection, guild_id: int, user_id: int) -> list[tuple[int, float]]:
+    return conn.execute(
+        "SELECT dias, fecha FROM pagos WHERE guild_id = ? AND user_id = ? ORDER BY fecha",
+        (guild_id, user_id),
+    ).fetchall()
+
+
+def resumen(conn: sqlite3.Connection, guild_id: int) -> list[tuple[int, int, int, float]]:
+    """(user_id, dias_totales, cantidad_de_pagos, ultimo_pago)"""
+    return conn.execute(
+        """
+        SELECT user_id, SUM(dias), COUNT(*), MAX(fecha)
+        FROM pagos WHERE guild_id = ?
+        GROUP BY user_id ORDER BY SUM(dias) DESC
+        """,
+        (guild_id,),
+    ).fetchall()
 
 
 def dias_restantes(vence_en: float) -> int:
