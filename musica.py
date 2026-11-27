@@ -669,7 +669,21 @@ class Reproductor:
 
         self.canal_texto = guild.get_channel(datos.get("texto") or 0) or canal_voz
         self.volumen = float(datos.get("volumen") or 1.0)
-        await self.asegurar_conexion(canal_voz)
+        conectado = False
+        for intento in range(1, 4):
+            try:
+                await self.asegurar_conexion(canal_voz)
+                conectado = True
+                break
+            except Exception as error:
+                log.warning(
+                    "No pude entrar al canal de voz en %s (intento %s/3): %s",
+                    guild.name, intento, error,
+                )
+                await asyncio.sleep(6)
+        if not conectado:
+            log.error("No retomo la musica en %s: no pude conectarme al canal", guild.name)
+            return False
         self.cola.clear()
         self.cola.extend(guardadas)
         _olvidar_estado(guild.id)
