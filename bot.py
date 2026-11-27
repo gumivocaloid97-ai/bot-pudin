@@ -741,6 +741,40 @@ async def comando_quitar_donador(
     )
 
 
+@tree.command(name="diagnostico", description="Estado interno del bot de musica")
+@app_commands.default_permissions(administrator=True)
+async def comando_diagnostico(interaction: discord.Interaction) -> None:
+    rep = reproductor_de(interaction.guild)
+    archivo = Path(__file__).with_name("version.txt")
+    version = archivo.read_text(encoding="utf-8").strip() if archivo.exists() else "sin version"
+    lineas = [f"**Version:** {version}"]
+    lineas.append(f"**ffmpeg:** `{musica.ruta_ffmpeg() or 'NO ENCONTRADO'}`")
+    voz = rep.voz
+    if voz is None:
+        lineas.append("**Voz:** sin conexion")
+    else:
+        canal = getattr(rep.canal_voz, "name", "?")
+        lineas.append(
+            f"**Voz:** {canal} | conectado={voz.is_connected()} | "
+            f"sonando={voz.is_playing()} | pausa={voz.is_paused()}"
+        )
+    if rep.actual is None:
+        lineas.append("**Pista:** ninguna")
+    else:
+        pos = rep._transcurrido()
+        lineas.append(
+            f"**Pista:** {rep.actual.titulo} — "
+            f"{musica.mmss(pos)} / {musica.mmss(rep.actual.duracion)}"
+        )
+        tiene = bool(rep.actual.archivo and Path(rep.actual.archivo).exists())
+        lineas.append(f"**Archivo en disco:** {'si' if tiene else 'no'}")
+    lineas.append(f"**Cola:** {len(rep.cola)}")
+    guardado = musica._leer_estado().get(str(interaction.guild.id))
+    lineas.append(f"**Estado guardado:** {'si' if guardado else 'no'}")
+    embed = discord.Embed(title="🔍 Diagnostico", description="\n".join(lineas), color=0x3498DB)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 @tree.command(name="actualizar", description="Busca actualizaciones del bot ahora mismo")
 @app_commands.default_permissions(administrator=True)
 async def comando_actualizar(interaction: discord.Interaction) -> None:
@@ -1088,7 +1122,7 @@ async def comando_ayuda(interaction: discord.Interaction) -> None:
         "Moderacion": "/borrar · /expulsar · /banear · /silenciar",
         "Sorteos": "/sorteo",
         "Donadores": "/donador · /donadores · /quitar-donador",
-        "Utilidad": "/ping · /servidor · /usuario · /ayuda · /version · /actualizar",
+        "Utilidad": "/ping · /servidor · /usuario · /ayuda · /version · /actualizar · /diagnostico",
     }
     embed = discord.Embed(title="Bot Pudin v.2", description="Todo lo que puedo hacer", color=0xF1C40F)
     for nombre, lista in grupos.items():
