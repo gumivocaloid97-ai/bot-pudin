@@ -108,7 +108,7 @@ class Pista:
 
 
 def mmss(segundos: float | None) -> str:
-    if not segundos or segundos <= 0:
+    if segundos is None or segundos < 0:
         return "--:--"
     total = int(segundos)
     horas, resto = divmod(total, 3600)
@@ -246,14 +246,65 @@ def es_lista(consulta: str) -> bool:
     return "list=" in consulta or "/playlist" in consulta
 
 
+class SaltoSelect(discord.ui.Select):
+    """Desplegable para saltar a un momento de la cancion."""
+
+    def __init__(self, panel: "Panel") -> None:
+        self.panel = panel
+        self.reproductor = panel.reproductor
+        super().__init__(
+            placeholder="⏱️ Ir a un momento",
+            custom_id="pudin_salto",
+            row=1,
+            options=[discord.SelectOption(label="Sin reproduccion", value="0")],
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not await self.panel.puede_usar(interaction):
+            return
+        await interaction.response.defer()
+        await self.reproductor.saltar_a(float(self.values[0]))
+
+
+class VolumenSelect(discord.ui.Select):
+    """Desplegable de volumen."""
+
+    def __init__(self, panel: "Panel") -> None:
+        self.panel = panel
+        self.reproductor = panel.reproductor
+        super().__init__(
+            placeholder="🔊 Volumen",
+            custom_id="pudin_volumen",
+            row=2,
+            options=[
+                discord.SelectOption(label="Silencio", value="0", emoji="🔇"),
+                discord.SelectOption(label="25%", value="0.25"),
+                discord.SelectOption(label="50%", value="0.5"),
+                discord.SelectOption(label="75%", value="0.75"),
+                discord.SelectOption(label="100%", value="1"),
+                discord.SelectOption(label="125%", value="1.25"),
+                discord.SelectOption(label="150%", value="1.5"),
+            ],
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not await self.panel.puede_usar(interaction):
+            return
+        await interaction.response.defer()
+        self.reproductor.fijar_volumen(float(self.values[0]))
+        await self.reproductor.actualizar_panel()
+
+
 class Panel(discord.ui.View):
-    """Controles de musica. Solo los ve y los usa el rol Donador."""
+    """Controles de musica."""
 
     def __init__(self, reproductor: "Reproductor") -> None:
         super().__init__(timeout=None)
         self.reproductor = reproductor
+        self.add_item(SaltoSelect(self))
+        self.add_item(VolumenSelect(self))
 
-    async def _puede_usar(self, interaction: discord.Interaction) -> bool:
+    async def puede_usar(self, interaction: discord.Interaction) -> bool:
         privado = getattr(interaction.guild, "id", None) in GUILDS_PRIVADOS
         if privado and not es_donador(interaction.user):
             await interaction.response.send_message(
@@ -270,39 +321,44 @@ class Panel(discord.ui.View):
 
     @discord.ui.button(emoji="⏯️", style=discord.ButtonStyle.primary, custom_id="pudin_pausa", row=0)
     async def pausar(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await self._puede_usar(interaction):
+        if not await self.puede_usar(interaction):
             return
         await interaction.response.defer()
         await self.reproductor.alternar_pausa()
 
-    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="pudin_siguiente", row=0)
-    async def siguiente(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await self._puede_usar(interaction):
+    @discord.ui.button(label="-30s", emoji="⏪", style=discord.ButtonStyle.secondary, custom_id="pudin_atras", row=0)
+    async def atras(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await self.puede_usar(interaction):
             return
         await interaction.response.defer()
-        await self.reproductor.saltar()
+        await self.reproductor.mover(-30)
+
+    @discord.ui.button(label="+30s", emoji="⏩", style=discord.ButtonStyle.secondary, custom_id="pudin_adelante", row=0)
+    async def adelante(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await self.puede_usar(interaction):
+            return
+        await interaction.response.defer()
+        await self.reproductor.mover(30)
 
     @discord.ui.button(emoji="⏹️", style=discord.ButtonStyle.danger, custom_id="pudin_parar", row=0)
     async def parar(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await self._puede_usar(interaction):
+        if not await self.puede_usar(interaction):
             return
         await interaction.response.defer()
         await self.reproductor.detener()
 
-    @discord.ui.button(label="Cola", emoji="📜", style=discord.ButtonStyle.secondary, custom_id="pudin_cola", row=1)
+    @discord.ui.button(label="Cola", emoji="📜", style=discord.ButtonStyle.secondary, custom_id="pudin_cola", row=3)
     async def cola(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await self._puede_usar(interaction):
+        if not await self.puede_usar(interaction):
             return
         await interaction.response.send_message(self.reproductor.texto_cola(), ephemeral=True)
 
-    @discord.ui.button(label="100%", emoji="🔊", style=discord.ButtonStyle.secondary, custom_id="pudin_volumen", row=1)
-    async def volumen(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await self._puede_usar(interaction):
+    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="pudin_siguiente", row=3)
+    async def siguiente(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await self.puede_usar(interaction):
             return
         await interaction.response.defer()
-        nuevo = await self.reproductor.cambiar_volumen()
-        button.label = f"{int(nuevo * 100)}%"
-        await self.reproductor.actualizar_panel()
+        await self.reproductor.saltar()
 
 
 class Reproductor:
@@ -597,20 +653,36 @@ class Reproductor:
             lineas.append(f"... y {resto} mas")
         return "\n".join(lineas)
 
-    async def cambiar_volumen(self) -> float:
-        self.volumen = {1.0: 1.5, 1.5: 0.5, 0.5: 1.0}.get(round(self.volumen, 1), 1.0)
+    def fijar_volumen(self, valor: float) -> float:
+        self.volumen = max(0.0, min(1.5, float(valor)))
         if self.fuente is not None:
             self.fuente.volume = self.volumen
         return self.volumen
+
+    def _opciones_salto(self) -> list[discord.SelectOption]:
+        if self.actual is None or not self.actual.duracion:
+            return [discord.SelectOption(label="Sin reproduccion", value="0")]
+        total = self.actual.duracion
+        paso = max(30, int(total / 8))
+        opciones = []
+        pos = 0
+        while pos < total - 5 and len(opciones) < 10:
+            opciones.append(discord.SelectOption(label=mmss(pos), value=str(pos)))
+            pos += paso
+        return opciones
 
     def _ajustar_botones(self) -> None:
         pausa = discord.utils.get(self.vista.children, custom_id="pudin_pausa")
         if pausa is not None:
             en_pausa = bool(self.voz and self.voz.is_paused())
             pausa.emoji = "▶️" if en_pausa else "⏸️"
+        salto = discord.utils.get(self.vista.children, custom_id="pudin_salto")
+        if salto is not None:
+            salto.options = self._opciones_salto()
         volumen = discord.utils.get(self.vista.children, custom_id="pudin_volumen")
         if volumen is not None:
-            volumen.label = f"{int(self.volumen * 100)}%"
+            for opcion in volumen.options:
+                opcion.default = abs(float(opcion.value) - self.volumen) < 0.01
 
     def _guild_id(self) -> int | None:
         guild = getattr(self.canal_texto, "guild", None)
@@ -658,6 +730,11 @@ class Reproductor:
 
     async def actualizar_panel(self) -> None:
         self._ajustar_botones()
+        if self.client is not None:
+            try:
+                self.client.add_view(self.vista)
+            except Exception:
+                pass
         texto = self._texto_panel()
         privado = self._es_privado()
         self.panel = await self._editar(self.panel, texto, None if privado else self.vista)
@@ -862,6 +939,29 @@ class Reproductor:
         )
         self.voz.play(fuente)
         log.info("Tono de prueba de %s segundos", segundos)
+
+    async def saltar_a(self, segundos: float) -> str:
+        if self.actual is None or self.voz is None:
+            return "No hay nada sonando."
+        pista = self.actual
+        total = pista.duracion or 0
+        destino = max(0.0, float(segundos))
+        if total and destino >= total - 1:
+            await self.saltar()
+            return "Fin del tema."
+        pista.desde = destino
+        # se saca de "actual" para que _avanzar no borre el archivo ya descargado
+        self.actual = None
+        self.cola.appendleft(pista)
+        self.inicio = time.monotonic() - destino
+        if self.voz.is_playing() or self.voz.is_paused():
+            self.voz.stop()
+        else:
+            await self._avanzar()
+        return f"⏱️ {mmss(destino)}"
+
+    async def mover(self, delta: float) -> str:
+        return await self.saltar_a(self._transcurrido() + delta)
 
     async def saltar(self) -> str | None:
         anterior = self.actual.titulo if self.actual else None
