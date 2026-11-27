@@ -233,7 +233,25 @@ async def revisar_actualizaciones() -> None:
     for rep in reproductores.values():
         rep.guardar_estado()
     await client.close()
+    await asyncio.sleep(4)
     actualizar.reiniciar()
+
+
+async def _retomar_musica() -> None:
+    """Espera a que Discord suelte la sesion de voz anterior y retoma la musica."""
+    await asyncio.sleep(8)
+    for servidor in client.guilds:
+        for intento in range(1, 4):
+            try:
+                if await reproductor_de(servidor).restaurar(servidor):
+                    log.info("Musica retomada en %s", servidor.name)
+                break
+            except Exception as error:
+                log.warning(
+                    "No pude retomar la musica en %s (intento %s/3): %s",
+                    servidor.name, intento, error,
+                )
+                await asyncio.sleep(5)
 
 
 @client.event
@@ -272,12 +290,7 @@ async def on_ready() -> None:
     if not tarea_donadores.is_running():
         tarea_donadores.start()
 
-    for servidor in client.guilds:
-        try:
-            if await reproductor_de(servidor).restaurar(servidor):
-                log.info("Musica retomada en %s", servidor.name)
-        except Exception as error:
-            log.warning("No pude retomar la musica en %s: %s", servidor.name, error)
+    client.loop.create_task(_retomar_musica())
 
 
 @client.event
@@ -804,6 +817,7 @@ async def comando_actualizar(interaction: discord.Interaction) -> None:
     for rep in reproductores.values():
         rep.guardar_estado()
     await client.close()
+    await asyncio.sleep(4)
     actualizar.reiniciar()
 
 
