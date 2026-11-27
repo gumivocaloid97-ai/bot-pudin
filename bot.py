@@ -265,9 +265,19 @@ async def antes_de_circulos() -> None:
 
 @client.event
 async def on_member_join(member: discord.Member) -> None:
-    if member.bot:
+    # con el filtro de entrada la bienvenida espera a que acepte las reglas
+    if member.bot or member.pending:
         return
+    await recibir_miembro(member)
 
+
+@client.event
+async def on_member_update(antes: discord.Member, despues: discord.Member) -> None:
+    if antes.pending and not despues.pending and not despues.bot:
+        await recibir_miembro(despues)
+
+
+async def recibir_miembro(member: discord.Member) -> None:
     guild = member.guild
     rol = rol_entrada(guild)
     if rol is not None and rol not in member.roles:
