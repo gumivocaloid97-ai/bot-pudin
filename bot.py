@@ -22,7 +22,11 @@ import actualizar
 import musica
 import niveles
 import salud
-import vigilancia
+
+try:
+    import vigilancia
+except ModuleNotFoundError:  # falta el archivo: el bot arranca igual y se actualiza
+    vigilancia = None
 
 GUILD_ID = 1575699459680112721
 SECTA_ID = 776821377800994826
@@ -44,7 +48,7 @@ CANAL_BIENVENIDA = 1575724591811399690
 CANAL_GENERAL = 1575699461777260645
 CANAL_REGISTRO = 1575850818802810961  # 📋・registro (staff)
 
-ANTISPAM = vigilancia.AntiSpam()
+ANTISPAM = vigilancia.AntiSpam() if vigilancia else None
 
 XP_MENSAJE_MIN = 15
 XP_MENSAJE_MAX = 25
@@ -99,6 +103,8 @@ async def registrar(guild: discord.Guild, titulo: str, detalle: str, color: int 
 
 async def vigilar(message: discord.Message) -> bool:
     """Borra el mensaje si rompe las reglas. Devuelve True si lo borro."""
+    if vigilancia is None:
+        return False
     if vigilancia.es_staff(message.author):
         return False
     if vigilancia.canal_sin_filtro(getattr(message.channel, "name", "")):
