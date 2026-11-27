@@ -56,6 +56,7 @@ CANAL_REGISTRO = 1575850818802810961  # 📋・registro (staff)
 ANTISPAM = vigilancia.AntiSpam() if vigilancia else None
 
 ROL_DONADOR = 1575724468574224395  # 💎 Donador (Pudines)
+ROL_HABITUAL = 1575724469954027682  # ⭐ Pudin Fiel
 db_donadores = donaciones.conectar() if donaciones else None
 
 XP_MENSAJE_MIN = 15
@@ -190,17 +191,24 @@ async def _revisar_donadores(guild: discord.Guild) -> None:
                 except discord.Forbidden:
                     log.error("No pude quitar el rol donador a %s", miembro)
                     continue
+            habitual = guild.get_role(ROL_HABITUAL)
+            if habitual is not None and habitual not in miembro.roles:
+                try:
+                    await miembro.add_roles(habitual, reason="Ex donador: pasa a habitual")
+                except discord.Forbidden:
+                    log.error("No pude dar %s a %s", habitual.name, miembro)
             donaciones.quitar(db_donadores, guild.id, user_id)
             await registrar(
                 guild,
                 "Donador vencido",
-                f"{miembro.mention} volvio a miembro comun",
+                f"{miembro.mention} paso a {habitual.mention if habitual else 'miembro comun'}",
                 0xE67E22,
             )
             try:
                 await miembro.send(
                     "Se te vencio el mes de 💎 Donador en **"
-                    f"{guild.name}**. Si queres renovarlo, hablá con el staff 🍮"
+                    f"{guild.name}**. Volviste a ⭐ Pudin Fiel. "
+                    "Si queres renovar, hablá con el staff 🍮"
                 )
             except discord.HTTPException:
                 pass
