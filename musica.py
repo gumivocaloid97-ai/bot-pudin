@@ -712,17 +712,18 @@ class Reproductor:
         self.repeticion = datos.get("repeticion") or "no"
         self.aleatorio = bool(datos.get("aleatorio"))
         conectado = False
-        for intento in range(1, 4):
+        for intento in range(1, 6):
             try:
+                log.info("Entrando al canal de voz en %s (intento %s/5)", guild.name, intento)
                 await self.asegurar_conexion(canal_voz)
                 conectado = True
                 break
             except Exception as error:
                 log.warning(
-                    "No pude entrar al canal de voz en %s (intento %s/3): %s",
+                    "No pude entrar al canal de voz en %s (intento %s/5): %s",
                     guild.name, intento, error,
                 )
-                await asyncio.sleep(6)
+                await asyncio.sleep(8)
         if not conectado:
             log.error("No retomo la musica en %s: no pude conectarme al canal", guild.name)
             return False
