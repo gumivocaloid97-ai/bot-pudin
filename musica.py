@@ -640,6 +640,7 @@ class Reproductor:
             _olvidar_estado(guild.id)
             return False
         if not any(not miembro.bot for miembro in canal_voz.members):
+            log.info("No retomo la musica en %s: el canal de voz esta vacio", guild.name)
             _olvidar_estado(guild.id)
             return False
 
@@ -878,7 +879,10 @@ class Reproductor:
                 pista = self.cola.popleft()
                 self.actual = pista
                 self._cargando = True
-                await self._mostrar_panel()
+                try:
+                    await self._mostrar_panel()
+                except Exception as error:
+                    log.warning("No pude actualizar el panel: %s", error)
 
                 try:
                     await self.descargar(pista)
@@ -943,7 +947,10 @@ class Reproductor:
                 self.guardar_estado()
                 self.voz.play(self.fuente, after=self._al_terminar)
                 log.info("Reproduciendo: %s", pista.titulo)
-                await self._mostrar_panel()
+                try:
+                    await self._mostrar_panel()
+                except Exception as error:
+                    log.warning("No pude actualizar el panel: %s", error)
                 self.client.loop.create_task(self._precargar())
                 return
 
