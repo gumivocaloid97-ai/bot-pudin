@@ -234,10 +234,22 @@ async def revisar_actualizaciones() -> None:
     log.info("Actualizacion aplicada: reiniciando el bot")
     for rep in reproductores.values():
         rep.guardar_estado()
+    await _despedir_voz()
     try:
         await client.close()
     finally:
         actualizar.reiniciar()
+
+
+async def _despedir_voz() -> None:
+    """Sale del canal de voz y espera: si no, Discord deja la sesion abierta."""
+    for rep in reproductores.values():
+        if rep.voz is not None and rep.voz.is_connected():
+            try:
+                await rep.voz.disconnect(force=True)
+            except Exception as error:
+                log.warning("No pude salir del canal de voz: %s", error)
+    await asyncio.sleep(1.5)
 
 
 async def _retomar_musica() -> None:
@@ -819,6 +831,7 @@ async def comando_actualizar(interaction: discord.Interaction) -> None:
     await interaction.followup.send(f"Actualizado a `{remota}`. Reiniciando...", ephemeral=True)
     for rep in reproductores.values():
         rep.guardar_estado()
+    await _despedir_voz()
     try:
         await client.close()
     finally:
