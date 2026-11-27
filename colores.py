@@ -1,4 +1,4 @@
-"""Colores de nombre para donadores."""
+"""Colores de nombre escalonados por meses de donacion."""
 
 from __future__ import annotations
 
@@ -6,9 +6,14 @@ import logging
 
 import discord
 
+import donaciones
+
 log = logging.getLogger("pudin")
 
 COLORES = ("🔴 Rojo", "🟠 Naranja", "🟢 Verde", "🔵 Celeste", "🟣 Violeta", "🌸 Rosa")
+DORADO = "👑 Dorado"
+DIAS_COLOR = 60
+DIAS_DORADO = 150
 
 
 def es_donador(miembro: discord.abc.User) -> bool:
@@ -22,12 +27,26 @@ def _rol(guild: discord.Guild, nombre: str) -> discord.Role | None:
     return discord.utils.get(guild.roles, name=nombre)
 
 
+def dias_seguidos(conn, miembro: discord.Member) -> int:
+    if conn is None or miembro.guild is None:
+        return 0
+    return donaciones.racha(conn, miembro.guild.id, miembro.id)
+
+
+def puede_elegir(conn, miembro: discord.Member) -> tuple[bool, int]:
+    if getattr(miembro.guild_permissions, "administrator", False):
+        return True, DIAS_DORADO
+    dias = dias_seguidos(conn, miembro)
+    return dias >= DIAS_COLOR, dias
+
+
 def embed_panel() -> discord.Embed:
     return discord.Embed(
         title="🎨 Color de nombre",
         description=(
-            "Elegí el color con el que querés aparecer en el servidor.\n\n"
-            "Es un beneficio de **💎 Donador**.\n"
+            "Elegí el color con el que aparecés en el servidor.\n\n"
+            f"**Se desbloquea a los {DIAS_COLOR} días seguidos de donación.**\n"
+            f"**{DORADO}** llega solo a los {DIAS_DORADO} días.\n\n"
             "Podés cambiarlo las veces que quieras."
         ),
         color=0xF1C40F,
@@ -35,8 +54,9 @@ def embed_panel() -> discord.Embed:
 
 
 class Selector(discord.ui.View):
-    def __init__(self) -> None:
+    def __init__(self, conn=None) -> None:
         super().__init__(timeout=None)
+        self.conn = conn
 
     @discord.ui.select(
         placeholder="Elegí tu color",
@@ -59,8 +79,25 @@ class Selector(discord.ui.View):
                 ephemeral=True,
             )
             return
-        await interaction.response.defer(ephemeral=True)
 
+        permitido, dias = puede_elegir(self.conn, miembro)
+        if not permitido:
+            faltan = DIAS_COLOR - dias
+            await interaction.response.send_message(
+                f"El color se desbloquea a los **{DIAS_COLOR} días seguidos**.\n"
+                f"Llevás **{dias}** días, te faltan **{faltan}**.",
+                ephemeral=True,
+            )
+            return
+
+        if _rol(interaction.guild, DORADO) in miembro.roles:
+            await interaction.response.send_message(
+                f"Ya tenés el color exclusivo **{DORADO}**, es el máximo.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
         anteriores = [rol for rol in miembro.roles if rol.name in COLORES]
         if anteriores:
             try:
@@ -90,9 +127,39 @@ class Selector(discord.ui.View):
         await interaction.followup.send(f"Listo, ahora tenés **{rol.name}**.", ephemeral=True)
 
 
+async def aplicar_nivel(conn, miembro: discord.Member) -> str | None:
+    """Pone o saca el dorado segun los dias seguidos. Devuelve lo que cambio."""
+    guild = miembro.guild
+    if guild is None:
+        return None
+    dorado = _rol(guild, DORADO)
+    if dorado is None:
+        return None
+    dias = dias_seguidos(conn, miembro)
+    tiene = dorado in miembro.roles
+
+    if dias >= DIAS_DORADO and not tiene:
+        otros = [rol for rol in miembro.roles if rol.name in COLORES]
+        try:
+            if otros:
+                await miembro.remove_roles(*otros, reason="Paso al color exclusivo")
+            await miembro.add_roles(dorado, reason=f"{dias} dias seguidos de donacion")
+            return "dorado puesto"
+        except discord.Forbidden:
+            log.error("No pude dar el dorado a %s", miembro)
+            return None
+    if dias < DIAS_DORADO and tiene:
+        try:
+            await miembro.remove_roles(dorado, reason="Se corto la racha")
+            return "dorado sacado"
+        except discord.Forbidden:
+            log.error("No pude sacarle el dorado a %s", miembro)
+    return None
+
+
 async def quitar_colores(miembro: discord.Member) -> None:
     """Se usa cuando vence la donacion."""
-    puestos = [rol for rol in miembro.roles if rol.name in COLORES]
+    puestos = [rol for rol in miembro.roles if rol.name in COLORES or rol.name == DORADO]
     if not puestos:
         return
     try:
