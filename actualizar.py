@@ -95,6 +95,33 @@ def buscar() -> bool:
     return True
 
 
+def faltantes() -> list[str]:
+    return [nombre for nombre in ARCHIVOS if not (CARPETA / nombre).exists()]
+
+
+def reparar() -> bool:
+    """Baja los archivos que falten, aunque la version sea la misma."""
+    faltan = faltantes()
+    if not faltan:
+        return False
+    print(f"[actualizar] faltan archivos: {', '.join(faltan)}")
+    for nombre in faltan:
+        try:
+            datos = _descargar(nombre)
+        except Exception as error:
+            print(f"[actualizar] no pude bajar {nombre}: {error!r}")
+            return False
+        try:
+            if nombre.endswith(".py"):
+                compile(datos, nombre, "exec")
+            (CARPETA / nombre).write_bytes(datos)
+        except (SyntaxError, OSError) as error:
+            print(f"[actualizar] {nombre} no se pudo guardar: {error!r}")
+            return False
+        print(f"[actualizar] recuperado {nombre}")
+    return True
+
+
 def reiniciar() -> None:
     try:
         os.execv(sys.executable, [sys.executable, str(CARPETA / "bot.py")])
