@@ -482,6 +482,11 @@ class Reproductor:
             lineas.append(f"En cola: {len(self.cola)}")
         return "\n".join(lineas)
 
+    def esta_sonando(self) -> bool:
+        if self.voz is None or self.actual is None:
+            return False
+        return self.voz.is_playing() or self.voz.is_paused()
+
     def texto_cola(self) -> str:
         if not self.cola:
             return "La cola esta vacia."
