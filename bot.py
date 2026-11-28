@@ -2142,6 +2142,8 @@ async def comando_ia(interaction: discord.Interaction, pregunta: str) -> None:
     await interaction.followup.send(
         respuesta[:1900], allowed_mentions=discord.AllowedMentions.none()
     )
+    if not ia.configurada():
+        await interaction.followup.send(ia.diagnostico(), ephemeral=True)
 
 
 @tree.command(name="servidor", description="Informacion del servidor")
