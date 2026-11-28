@@ -69,12 +69,92 @@ def _texto(ruta: Path) -> str:
         return ""
 
 
+CANDIDATOS = (
+    "ia_clave.txt",
+    "ia_clave.txt.txt",
+    "ia_clave",
+    "ia_clave.TXT",
+    "clave_ia.txt",
+    "ia_key.txt",
+    "api_clave.txt",
+)
+
+_usado = ""
+
+
+def _limpiar(texto: str) -> str:
+    linea = texto.strip().lstrip("\ufeff").strip()
+    bajo = linea.lower()
+    if bajo.startswith("clave") or bajo.startswith("key") or bajo.startswith("api_clave"):
+        if "=" in linea:
+            linea = linea.split("=", 1)[1]
+    return linea.strip().strip('"').strip("'").strip()
+
+
+def _posibles() -> list[Path]:
+    """Archivos donde puede estar la clave, con nombre exacto o parecido."""
+    vistos: list[Path] = []
+    for nombre in CANDIDATOS:
+        ruta = CARPETA / nombre
+        if ruta.is_file():
+            vistos.append(ruta)
+    for ruta in sorted(CARPETA.glob("ia*")):
+        if ruta in vistos or not ruta.is_file():
+            continue
+        if ruta.suffix.lower() not in ("", ".txt", ".key"):
+            continue          # nunca un .py, .bat ni nada de codigo
+        vistos.append(ruta)
+    return vistos
+
+
 def clave() -> str:
-    """La clave: primero el entorno, despues ia_clave.txt."""
-    del_entorno = os.environ.get("PUDIN_IA_CLAVE", "").strip()
+    """La clave: primero el entorno, despues cualquier archivo que se le parezca."""
+    global _usado
+    del_entorno = _limpiar(os.environ.get("PUDIN_IA_CLAVE", ""))
     if del_entorno:
+        _usado = "la variable PUDIN_IA_CLAVE"
         return del_entorno
-    return _texto(ARCHIVO_CLAVE).splitlines()[0].strip() if ARCHIVO_CLAVE.exists() else ""
+
+    for ruta in _posibles():
+        contenido = _texto(ruta)
+        if not contenido:
+            continue
+        if ruta.name.lower() == "ia.txt":
+            for linea in contenido.splitlines():
+                crudo = linea.strip().lstrip("\ufeff").lower()
+                if crudo.startswith(("clave", "key", "api_clave")):
+                    valor = _limpiar(linea)
+                    if valor:
+                        _usado = f"{ruta.name} (linea clave=)"
+                        return valor
+            continue
+        valor = _limpiar(contenido.splitlines()[0])
+        if valor:
+            _usado = ruta.name
+            return valor
+    _usado = ""
+    return ""
+
+
+def diagnostico() -> str:
+    """Explica donde busco la clave, para cuando no la encuentra."""
+    if configurada():
+        return f"Clave leida de {_usado}. {resumen()}"
+    lineas = [
+        f"Busque la clave en esta carpeta: {CARPETA}",
+    ]
+    parecidos = [r.name for r in _posibles() if r.name.lower() != "ia.txt"]
+    if parecidos:
+        lineas.append("Encontre estos archivos parecidos: " + ", ".join(parecidos))
+        lineas.append("Si no tienen la clave adentro, pone la clave y listo (no hace falta reiniciar).")
+    else:
+        lineas.append("No hay ningun ia_clave.txt en esa carpeta.")
+        lineas.append(
+            "Ojo con Windows: si al crear el archivo se llamo 'ia_clave.txt.txt', "
+            "no sirve. Activa 'ver extensiones' en el Explorador."
+        )
+    lineas.append("La carpeta correcta es la que tiene bot.py y Pudin.bat adentro.")
+    return "\n".join(lineas)
 
 
 def ajustes() -> dict[str, str]:
@@ -167,7 +247,8 @@ def respuesta_simple(pregunta: str) -> str:
         )
     return (
         "Todavía no tengo la IA conectada, así que solo puedo con lo básico.\n"
-        "Para activarla: poné tu clave en ia_clave.txt y reiniciá el bot."
+        "Para activarla: poné tu clave en ia_clave.txt, en la carpeta del bot "
+        "(donde está Pudin.bat). No hace falta reiniciar."
     )
 
 
