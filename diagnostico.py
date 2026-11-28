@@ -13,7 +13,8 @@ SALIDA = CARPETA / "diagnostico.txt"
 
 ARCHIVOS = (
     "bot.py", "app.py", "pudin.py", "panel.py", "panel.html", "bandeja.py",
-    "supervisor.py", "inicio.py", "icono.png", "version.txt", "ia.py",
+    "supervisor.py", "inicio.py", "icono.png", "version.txt", "ia.py", "latencia.py",
+    "limpiar.py", "pudin.py", "ia.py",
 )
 RUNTIME = (
     "python.exe", "pythonw.exe", "python312.dll", "_tkinter.pyd",
@@ -68,6 +69,17 @@ def main() -> None:
     paquete = sitio / "tkinter" / "__init__.py"
     anotar(f"  {'tcl/':18} {'OK' if tcl.exists() else 'FALTA'}")
     anotar(f"  {'tkinter/':18} {'OK' if paquete.exists() else 'FALTA'}")
+
+    anotar("")
+    anotar("--- icono en la bandeja (PC) ---")
+    for modulo in ("pystray", "PIL"):
+        try:
+            __import__(modulo)
+            anotar(f"  {modulo:8}: OK")
+        except Exception as error:  # noqa: BLE001
+            anotar(f"  {modulo:8}: FALTA ({error}) -> corré Instalar Pillow.bat")
+    anotar(f"  icono.png : {'SI' if (CARPETA / 'icono.png').exists() else 'NO'}")
+    anotar("  Si la libreria esta OK y no ves el icono, puede estar en la flechita ^ de la barra.")
 
     anotar("")
     anotar("--- IA ---")
