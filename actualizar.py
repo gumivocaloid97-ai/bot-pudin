@@ -17,7 +17,7 @@ ARCHIVOS = (
     "colores.py", "edad.py", "radio.py", "supervisor.py", "inicio.py",
     "Iniciar Oculto.vbs", "Arrancar Bot.bat", "Detener Bot.bat",
     "Ver Registro.bat", "Instalar Inicio Automatico.bat",
-    "Quitar Inicio Automatico.bat",
+    "Quitar Inicio Automatico.bat", "bandeja.py", "icono.png",
 )
 ESPERA = 20
 
@@ -137,3 +137,46 @@ def reiniciar() -> None:
     except Exception as error:
         print(f"[actualizar] cerra y volve a abrir el bot a mano: {error!r}")
         sys.exit(0)
+
+
+PAQUETES_URL = f"{CRUDO}/paquetes.zip"
+PAQUETES = ("pystray", "PIL", "six")
+
+
+def faltan_paquetes() -> bool:
+    """True si el icono de la bandeja no tiene con que arrancar."""
+    for nombre in PAQUETES:
+        try:
+            __import__(nombre)
+        except ImportError:
+            return True
+    return False
+
+
+def asegurar_paquetes() -> bool:
+    """Baja pystray y Pillow a la carpeta del runtime la primera vez."""
+    if sys.platform != "win32" or not faltan_paquetes():
+        return False
+    destino = Path(sys.prefix) / "Lib" / "site-packages"
+    if not destino.is_dir():
+        print(f"[paquetes] no encontre {destino}")
+        return False
+    temporal = CARPETA / "paquetes.zip"
+    print("[paquetes] bajando lo que falta para el icono de la bandeja...")
+    try:
+        datos = _bajar(PAQUETES_URL, {})
+        temporal.write_bytes(datos)
+        import zipfile
+
+        with zipfile.ZipFile(temporal) as z:
+            z.extractall(destino)
+        print(f"[paquetes] listo: {len(datos) // 1024} KB en {destino}")
+        return True
+    except Exception as error:
+        print(f"[paquetes] no pude instalarlos: {error!r}")
+        return False
+    finally:
+        try:
+            temporal.unlink()
+        except OSError:
+            pass
