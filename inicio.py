@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
@@ -53,6 +54,38 @@ def quitar() -> None:
         print("  No estaba instalado.")
 
 
+MARCA = BASE / "arrancando.txt"
+VALE_MARCA = 120
+
+
+def _marca_vieja() -> bool:
+    try:
+        return time.time() - MARCA.stat().st_mtime > VALE_MARCA
+    except OSError:
+        return False
+
+
+def _tomar_marca() -> bool:
+    """Solo un arranque a la vez, aunque se hagan varios clics seguidos."""
+    for _ in range(2):
+        try:
+            with open(MARCA, "x", encoding="utf-8") as archivo:
+                archivo.write(str(int(time.time())))
+            return True
+        except FileExistsError:
+            intacta = not _marca_vieja()
+            try:
+                rota = MARCA.stat().st_size == 0
+            except OSError:
+                rota = True
+            if intacta and not rota:
+                return False
+            MARCA.unlink(missing_ok=True)
+        except OSError:
+            return False
+    return False
+
+
 def ocupado(puerto: int) -> bool:
     """True si algo ya esta escuchando en ese puerto de esta PC."""
     import socket
@@ -71,11 +104,19 @@ def arrancar() -> None:
     if ocupado(47777) or ocupado(47778):
         print("  Ya hay un Bot Pudin andando. No arranco otro.")
         return
-    subprocess.Popen(
-        [str(python_oculto()), str(SUPERVISOR)],
-        cwd=str(BASE),
-        creationflags=SIN_VENTANA,
-    )
+    if not _tomar_marca():
+        print("  Ya hay un arranque en curso. Espera unos segundos.")
+        return
+    try:
+        subprocess.Popen(
+            [str(python_oculto()), str(SUPERVISOR)],
+            cwd=str(BASE),
+            creationflags=SIN_VENTANA,
+        )
+    except OSError as error:
+        MARCA.unlink(missing_ok=True)
+        print(f"  No pude arrancarlo: {error}")
+        return
     print("  Bot arrancado en segundo plano.")
 
 
