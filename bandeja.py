@@ -44,6 +44,32 @@ def _imagen():
     return Image.new("RGBA", (64, 64), (246, 196, 138, 255))
 
 
+NAVEGADORES_APP = (
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+)
+
+
+def _abrir_panel() -> None:
+    """Abre el panel como ventana de app, sin barra del navegador."""
+    import webbrowser
+
+    for exe in NAVEGADORES_APP:
+        if not Path(exe).exists():
+            continue
+        try:
+            subprocess.Popen(
+                [exe, "--app=http://127.0.0.1:8777", "--window-size=1040,800"],
+                creationflags=0x08000000,  # sin consola
+            )
+            return
+        except OSError:
+            continue
+    webbrowser.open("http://127.0.0.1:8777")
+
+
 def iniciar(cliente) -> bool:
     """Prende el icono. Si algo falla, el bot sigue andando igual."""
     try:
@@ -87,7 +113,8 @@ def iniciar(cliente) -> bool:
     menu = pystray.Menu(
         pystray.MenuItem(estado, accion(lambda: None), enabled=False),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Abrir el registro", accion(lambda: _abrir(REGISTRO)), default=True),
+        pystray.MenuItem("Abrir el panel", accion(_abrir_panel), default=True),
+        pystray.MenuItem("Abrir el registro", accion(lambda: _abrir(REGISTRO))),
         pystray.MenuItem("Abrir la carpeta", accion(lambda: _abrir(CARPETA))),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Reiniciar el bot", accion(lambda: en_el_bot(reiniciar()))),
