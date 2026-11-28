@@ -520,6 +520,8 @@ async def on_ready() -> None:
         tarea_contador.start()
     if radio is not None and not tarea_radio.is_running():
         tarea_radio.start()
+    if edad is not None and not tarea_edad.is_running():
+        tarea_edad.start()
     for servidor in client.guilds:
         for miembro in servidor.members:
             if miembro.premium_since is not None:
@@ -865,6 +867,25 @@ async def on_message(message: discord.Message) -> None:
         log.info("%s subio a nivel %s", message.author, nuevo)
         await aplicar_recompensas(message.author, anterior, nuevo)
         await aplicar_circulo(message.author)
+
+
+@tasks.loop(hours=3)
+async def tarea_edad() -> None:
+    """Si alguien entro con el bot apagado, igual le llega el aviso."""
+    if edad is None:
+        return
+    for guild in client.guilds:
+        try:
+            _, _, nombres = await edad.avisar_faltantes(guild)
+            if nombres:
+                log.info("Aviso de edad enviado a: %s", ", ".join(nombres))
+        except Exception as error:
+            log.error("Fallo el aviso de edad en %s: %s", guild.name, error)
+
+
+@tarea_edad.before_loop
+async def antes_de_edad() -> None:
+    await client.wait_until_ready()
 
 
 @tasks.loop(minutes=1)
@@ -1245,6 +1266,38 @@ async def comando_ban_grooming(
         f"{miembro.mention} baneado. Sus mensajes de los últimos 7 días se borraron.",
         ephemeral=True,
     )
+
+
+@tree.command(
+    name="edad-faltantes",
+    description="Muestra quien no eligio la edad y les manda un privado",
+)
+@app_commands.describe(avisar="Mandarles privado (por defecto si)")
+@app_commands.default_permissions(ban_members=True)
+async def comando_edad_faltantes(
+    interaction: discord.Interaction, avisar: bool = True
+) -> None:
+    if edad is None:
+        await interaction.response.send_message("Falta el archivo edad.py.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    pendientes = edad.faltantes(interaction.guild)
+    if not pendientes:
+        await interaction.followup.send("Todos eligieron su grupo de edad.", ephemeral=True)
+        return
+    lineas = []
+    for miembro in pendientes[:25]:
+        cuando = (
+            f"<t:{int(miembro.joined_at.timestamp())}:R>" if miembro.joined_at else "?"
+        )
+        lineas.append(f"- {miembro.display_name} (entró {cuando})")
+    texto = f"**Faltan {len(pendientes)}:**\n" + "\n".join(lineas)
+    if avisar:
+        enviados, fallidos, _ = await edad.avisar_faltantes(interaction.guild)
+        texto += f"\n\nLes mandé el aviso a {enviados}."
+        if fallidos:
+            texto += f" {fallidos} tienen los privados cerrados: avisales en el canal."
+    await interaction.followup.send(texto[:1900], ephemeral=True)
 
 
 @tree.command(name="edad-panel", description="Publica el boton para elegir mayor o menor de 18")
