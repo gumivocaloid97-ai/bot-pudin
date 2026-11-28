@@ -17,8 +17,8 @@ ARCHIVOS = (
     "colores.py", "edad.py", "radio.py", "supervisor.py", "inicio.py",
     "Iniciar Oculto.vbs", "Arrancar Bot.bat", "Detener Bot.bat",
     "Ver Registro.bat", "Instalar Inicio Automatico.bat",
-    "Quitar Inicio Automatico.bat", "bandeja.py", "icono.png",
-    "panel.py", "panel.html", "Panel.bat", "app.py", "pudin.py", "Pudin.bat", "diagnostico.py", "Diagnostico.bat",
+    "Quitar Inicio Automatico.bat", "Detener Bot.bat", "bandeja.py", "icono.png",
+    "panel.py", "panel.html", "Panel.bat", "app.py", "pudin.py", "Pudin.bat", "diagnostico.py", "Diagnostico.bat", "limpiar.py", "Limpiar.bat",
 )
 ESPERA = 20
 
