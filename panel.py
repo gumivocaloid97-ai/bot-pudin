@@ -172,7 +172,9 @@ async def iniciar(cliente, arbol=None) -> bool:
         except OSError as error:
             log.warning("No pude escribir detener.txt: %s", error)
         asyncio.create_task(despues(cerrar=True))
-        return web.json_response({"mensaje": "Apagando el bot. Después arrancalo con Arrancar Bot.bat."})
+        return web.json_response(
+            {"mensaje": "Apagando. Queda apagado hasta que aprietes Arrancar el bot."}
+        )
 
     aplicacion = web.Application()
     aplicacion["cliente"] = cliente
