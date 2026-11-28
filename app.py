@@ -33,9 +33,9 @@ ROJO = "#e5484d"
 FUENTE = "Segoe UI"
 
 
-def pedir(ruta: str, metodo: str = "GET") -> dict:
+def pedir(ruta: str, metodo: str = "GET", espera: float = 1.5) -> dict:
     pedido = urllib.request.Request(API + ruta, method=metodo)
-    with urllib.request.urlopen(pedido, timeout=1.5) as respuesta:
+    with urllib.request.urlopen(pedido, timeout=espera) as respuesta:
         return json.loads(respuesta.read().decode("utf-8"))
 
 
@@ -66,6 +66,11 @@ class Ventana:
         self.chips: list[tk.Label] = []
         self.encendido = time.time()
         self.arrancando = os.environ.get("PUDIN_ARRANCANDO") == "1"
+        self._estados: queue.Queue = queue.Queue()
+        self._registros: queue.Queue = queue.Queue()
+        self._avisos: queue.Queue = queue.Queue()
+        self._consultando = False
+        self._leyendo = False
         self.dibujar()
         self.escuchar()
         if not self.viva():
@@ -256,6 +261,16 @@ class Ventana:
                         return
             except queue.Empty:
                 pass
+            for cola, pintor in (
+                (self._estados, self.pintar),
+                (self._registros, self.pintar_registro),
+                (self._avisos, self.pintar_aviso),
+            ):
+                try:
+                    while True:
+                        pintor(cola.get_nowait())
+                except queue.Empty:
+                    pass
             if self.viva():
                 self.raiz.after(250, revisar)
 
@@ -264,11 +279,32 @@ class Ventana:
     # ---------- acciones ----------
 
     def accion(self, nombre: str, mensaje: str) -> None:
+        self.nota.configure(text=mensaje)
+        if nombre in ("reiniciar", "actualizar"):
+            self.arrancando = True
+            self.encendido = time.time()
+            self.boton_arrancar.configure(state="disabled")
+        threading.Thread(target=self._mandar, args=(nombre, mensaje), daemon=True).start()
+
+    def _mandar(self, nombre: str, mensaje: str) -> None:
         try:
-            pedir(f"/api/{nombre}", metodo="POST")
-            self.nota.configure(text=mensaje)
+            respuesta = pedir(f"/api/{nombre}", metodo="POST", espera=2.0)
+        except urllib.error.HTTPError as error:
+            try:
+                respuesta = json.loads(error.read().decode("utf-8"))
+            except (ValueError, OSError):
+                respuesta = None
         except (urllib.error.URLError, OSError, ValueError):
-            self.nota.configure(text="El bot no responde. Probalo de nuevo en un rato.")
+            respuesta = None
+        if respuesta is None:
+            texto = "El bot no responde. Probalo de nuevo en un rato."
+        else:
+            texto = respuesta.get("mensaje") or mensaje
+        self._avisos.put(texto)
+
+    def pintar_aviso(self, texto: str) -> None:
+        if self.viva():
+            self.nota.configure(text=texto)
 
     def apagar(self) -> None:
         from tkinter import messagebox
@@ -278,6 +314,9 @@ class Ventana:
         self.accion("detener", "Apagando el bot…")
 
     def arrancar(self) -> None:
+        self.boton_arrancar.configure(state="disabled")
+        self.arrancando = True
+        self.encendido = time.time()
         try:
             import inicio
 
@@ -285,17 +324,32 @@ class Ventana:
             self.nota.configure(text="Arrancando el bot, dale unos segundos…")
         except Exception as error:  # noqa: BLE001
             self.nota.configure(text=f"No pude arrancarlo: {error}")
+            self.boton_arrancar.configure(state="normal")
 
     # ---------- datos ----------
 
     def refrescar(self) -> None:
+        """Pide el estado en un hilo aparte: la ventana nunca se congela."""
         if not self.viva():
             return
+        if not self._consultando:
+            self._consultando = True
+            threading.Thread(target=self._traer_estado, daemon=True).start()
+        self.raiz.after(2000, self.refrescar)
+
+    def _traer_estado(self) -> None:
         try:
-            datos = pedir("/api/estado")
+            datos = pedir("/api/estado", espera=1.2)
         except (urllib.error.URLError, OSError, ValueError):
-            esperando = self.arrancando and time.time() - self.encendido < 75
-            if esperando:
+            datos = None
+        self._estados.put(datos)
+        self._consultando = False
+
+    def pintar(self, datos) -> None:
+        if not self.viva():
+            return
+        if datos is None:
+            if self.arrancando and time.time() - self.encendido < 75:
                 self.estado.configure(text="  Arrancando…  ", bg="#2e2716", fg=AMARILLO)
                 self.nota.configure(text="Arrancando el bot, dale unos segundos…")
                 self.boton_arrancar.configure(state="disabled")
@@ -304,10 +358,9 @@ class Ventana:
                 self.estado.configure(text="  Apagado  ", bg="#2e1a1c", fg=ROJO)
                 self.nota.configure(text="El bot no está corriendo. Apretá Arrancar el bot.")
                 self.boton_arrancar.configure(state="normal")
-            self.raiz.after(2500, self.refrescar)
             return
 
-        self.version.configure(text="v" + datos.get("version", "—"))
+        self.version.configure(text="v" + str(datos.get("version", "—")))
         if datos.get("usuario"):
             self.subtitulo.configure(text=f"{datos['usuario']} · panel de control")
         if datos.get("conectado"):
@@ -319,13 +372,13 @@ class Ventana:
         self.valores["miembros"].configure(text=str(datos.get("miembros", 0)))
         self.valores["comandos"].configure(text=str(datos.get("comandos", 0)))
         self.valores["encendido"].configure(text=humano(datos.get("encendido", 0)))
-        self.valores["ping"].configure(text=f"{datos.get('ping', 0)} ms" if datos.get("ping") else "—")
-
+        self.valores["ping"].configure(
+            text=f"{datos.get('ping', 0)} ms" if datos.get("ping") else "—"
+        )
         self.pintar_servidores(datos.get("servidores", []))
 
         self.arrancando = False
         self.boton_arrancar.configure(state="disabled")
-        self.raiz.after(2000, self.refrescar)
 
     def pintar_servidores(self, servidores: list) -> None:
         while len(self.chips) < len(servidores):
@@ -341,22 +394,35 @@ class Ventana:
     def leer_registro(self) -> None:
         if not self.viva():
             return
+        if not self._leyendo:
+            self._leyendo = True
+            threading.Thread(target=self._traer_log, daemon=True).start()
+        self.raiz.after(3000, self.leer_registro)
+
+    def _traer_log(self) -> None:
         try:
-            datos = pedir("/api/log?lineas=150")
+            datos = pedir("/api/log?lineas=150", espera=1.2)
             lineas = datos.get("lineas", [])
         except (urllib.error.URLError, OSError, ValueError):
-            lineas = []
-            self.cuenta.configure(text="sin conexión")
+            lineas = None
+        self._registros.put(lineas)
+        self._leyendo = False
 
-        if lineas:
-            self.cuenta.configure(text=f"{len(lineas)} líneas")
-            self.texto.configure(state="normal")
-            self.texto.delete("1.0", "end")
-            for linea in lineas:
-                self._escribir(linea)
-            self.texto.configure(state="disabled")
-            self.texto.see("end")
-        self.raiz.after(3000, self.leer_registro)
+    def pintar_registro(self, lineas) -> None:
+        if not self.viva():
+            return
+        if lineas is None:
+            self.cuenta.configure(text="sin conexión")
+            return
+        if not lineas:
+            return
+        self.cuenta.configure(text=f"{len(lineas)} líneas")
+        self.texto.configure(state="normal")
+        self.texto.delete("1.0", "end")
+        for linea in lineas:
+            self._escribir(linea)
+        self.texto.configure(state="disabled")
+        self.texto.see("end")
 
     def _escribir(self, linea: str) -> None:
         partes = linea.split(" ", 2)
