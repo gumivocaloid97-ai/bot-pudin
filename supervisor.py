@@ -49,6 +49,8 @@ def main() -> None:
         anotar("ya hay un supervisor andando, este no arranca")
         return
 
+    (BASE / "arrancando.txt").unlink(missing_ok=True)
+
     fallos = 0
     anotar("arranca el supervisor")
     while True:
