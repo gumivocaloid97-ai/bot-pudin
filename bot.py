@@ -479,6 +479,7 @@ async def _retomar_musica() -> None:
 @client.event
 async def on_ready() -> None:
     log.info("Conectado como %s (%s)", client.user, client.user.id)
+    musica.anotar_cookies()
     for servidor in client.guilds:
         log.info("Servidor: %s | miembros: %s", servidor.name, servidor.member_count)
 
