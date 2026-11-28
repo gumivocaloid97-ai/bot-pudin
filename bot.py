@@ -2178,7 +2178,7 @@ if __name__ == "__main__":
     if not una_sola_instancia():
         log.error("Ya hay otro Bot Pudin corriendo en esta PC. No arranco una segunda copia.")
         print("  Ya hay otro Bot Pudin corriendo.")
-        print("  Cerra esa copia con Detener Bot.bat y volve a intentar.")
+        print("  Cerra las copias con Limpiar.bat y volve a intentar.")
         time.sleep(8)
         raise SystemExit(0)
     actualizar.asegurar_paquetes()
