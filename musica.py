@@ -290,6 +290,23 @@ def archivo_cookies() -> tuple[Path | None, str]:
     return None, "formato desconocido"
 
 
+def nombre_variante(extra: dict) -> str:
+    partes = []
+    if "cookiefile" in extra:
+        partes.append("cookies")
+    if "cookiesfrombrowser" in extra:
+        partes.append(f"cookies de {extra['cookiesfrombrowser'][0]}")
+    if "extractor_args" in extra:
+        cliente = extra["extractor_args"]["youtube"]["player_client"][0]
+        partes.append(f"cliente {cliente}")
+    return " + ".join(partes) or "sin cookies"
+
+
+def primera_linea(error: Exception) -> str:
+    texto = str(error).strip().splitlines()
+    return texto[0][:160] if texto else error.__class__.__name__
+
+
 def variantes_descarga() -> list[dict]:
     """Formas de pedirle el audio a YouTube, de la mas simple a la mas completa."""
     variantes: list[dict] = []
@@ -304,6 +321,12 @@ def variantes_descarga() -> list[dict]:
     for navegador in navegadores_disponibles():
         variantes.append({"cookiesfrombrowser": (navegador,)})
     return variantes
+
+
+def anotar_cookies() -> None:
+    """Deja el estado de las cookies en bot.log, sin tener que preguntar."""
+    for linea in revisar_cookies():
+        log.info("cookies: %s", linea)
 
 
 def revisar_cookies() -> list[str]:
@@ -591,8 +614,10 @@ class Reproductor:
     async def buscar(self, consulta: str) -> list[Pista]:
         """Devuelve las pistas a encolar. Una lista de YouTube devuelve todas."""
 
-        def _extraer() -> list[Pista]:
-            with yt_dlp.YoutubeDL(OPCIONES_BUSQUEDA) as ydl:
+        def _intento(extra: dict) -> list[Pista]:
+            opciones = dict(OPCIONES_BUSQUEDA)
+            opciones.update(extra)
+            with yt_dlp.YoutubeDL(opciones) as ydl:
                 objetivo = consulta if consulta.startswith("http") else f"ytsearch1:{consulta}"
                 info = ydl.extract_info(objetivo, download=False)
 
@@ -615,6 +640,23 @@ class Reproductor:
                 url = info.get("webpage_url") or info.get("url") or consulta
                 return [Pista(info.get("title") or consulta, url, duracion=info.get("duration"))]
 
+        def _extraer() -> list[Pista]:
+            ultimo: Exception | None = None
+            for extra in self._orden_variantes():
+                try:
+                    pistas = _intento(extra)
+                except yt_dlp.utils.DownloadError as error:
+                    ultimo = error
+                    log.warning(
+                        "Busqueda con %s fallo: %s", nombre_variante(extra), primera_linea(error)
+                    )
+                    continue
+                if pistas:
+                    return pistas
+            if ultimo is not None:
+                raise ultimo
+            return []
+
         return await asyncio.to_thread(_extraer)
 
     def _orden_variantes(self) -> list[dict]:
@@ -633,7 +675,8 @@ class Reproductor:
         def _bajar() -> tuple[str | None, Path | None, dict]:
             nonlocal ganadora, duracion
             ultimo: Exception | None = None
-            for extra in self._orden_variantes():
+            intentos = self._orden_variantes()
+            for numero, extra in enumerate(intentos, 1):
                 opciones = dict(OPCIONES_DESCARGA)
                 opciones.update(extra)
                 ejecutable = ruta_ffmpeg()
@@ -656,9 +699,12 @@ class Reproductor:
                         return None, Path(ydl.prepare_filename(info)), {}
                 except yt_dlp.utils.DownloadError as error:
                     ultimo = error
+                    log.warning(
+                        "Intento %s/%s (%s) fallo: %s",
+                        numero, len(intentos), nombre_variante(extra), primera_linea(error),
+                    )
                     if not es_error_reintentable(error):
                         raise
-                    log.warning("Ese intento no sirvio, pruebo otra forma (%s)", extra)
             if ultimo:
                 raise ultimo
             raise RuntimeError("No pude descargar el audio")
