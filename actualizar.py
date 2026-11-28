@@ -181,3 +181,54 @@ def asegurar_paquetes() -> bool:
             temporal.unlink()
         except OSError:
             pass
+
+
+TK_URL = f"{CRUDO}/tkinter.zip"
+
+
+def falta_tkinter() -> bool:
+    try:
+        import tkinter  # noqa: F401
+    except Exception:
+        return True
+    return False
+
+
+def asegurar_tkinter() -> bool:
+    """Baja Tkinter al runtime para que la ventana nativa del bot funcione."""
+    if sys.platform != "win32" or not falta_tkinter():
+        return False
+    raiz = Path(sys.prefix)
+    sitio = raiz / "Lib" / "site-packages"
+    if not sitio.is_dir():
+        print(f"[tkinter] no encontre {sitio}")
+        return False
+    temporal = CARPETA / "tkinter.zip"
+    print("[tkinter] bajando la ventana del bot, una sola vez...")
+    try:
+        datos = _bajar(TK_URL, {})
+        temporal.write_bytes(datos)
+        import zipfile
+
+        with zipfile.ZipFile(temporal) as z:
+            for nombre in z.namelist():
+                if nombre.endswith("/"):
+                    continue
+                if nombre.startswith("borde/"):
+                    destino = raiz / nombre[len("borde/"):]
+                elif nombre.startswith("sitio/"):
+                    destino = sitio / nombre[len("sitio/"):]
+                else:
+                    continue
+                destino.parent.mkdir(parents=True, exist_ok=True)
+                destino.write_bytes(z.read(nombre))
+        print(f"[tkinter] listo: {len(datos) // 1024} KB")
+        return True
+    except Exception as error:
+        print(f"[tkinter] no pude instalarlo: {error!r}")
+        return False
+    finally:
+        try:
+            temporal.unlink()
+        except OSError:
+            pass
