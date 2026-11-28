@@ -14,6 +14,9 @@ REGISTRO = BASE / "supervisor.log"
 
 ESPERA = 15
 FALLOS_MAXIMOS = 5
+PUERTO_CANDADO = 47778
+
+_CANDADO = None
 
 
 def anotar(texto: str) -> None:
@@ -24,7 +27,28 @@ def anotar(texto: str) -> None:
         pass
 
 
+def unico() -> bool:
+    """Un solo supervisor por PC: si ya hay otro, este se va."""
+    global _CANDADO
+    import socket
+
+    try:
+        _CANDADO = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _CANDADO.bind(("127.0.0.1", PUERTO_CANDADO))
+        _CANDADO.listen(1)
+        return True
+    except OSError:
+        if _CANDADO is not None:
+            _CANDADO.close()
+            _CANDADO = None
+        return False
+
+
 def main() -> None:
+    if not unico():
+        anotar("ya hay un supervisor andando, este no arranca")
+        return
+
     fallos = 0
     anotar("arranca el supervisor")
     while True:
