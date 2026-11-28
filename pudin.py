@@ -36,6 +36,22 @@ def cartel(titulo: str, mensaje: str) -> None:
         print(f"{titulo}: {mensaje}")
 
 
+def revisar_ventana() -> list[str]:
+    """Archivos que necesita la ventana y no estan en el runtime."""
+    import sys
+
+    raiz = Path(sys.prefix)
+    necesarias = (
+        "_tkinter.pyd",
+        "tcl86t.dll",
+        "tk86t.dll",
+        "zlib1.dll",
+        "vcruntime140.dll",
+        "python312.dll",
+    )
+    return [nombre for nombre in necesarias if not (raiz / nombre).exists()]
+
+
 def bot_anda() -> bool:
     try:
         with urllib.request.urlopen(API + "/api/estado", timeout=1.0) as respuesta:
@@ -71,10 +87,14 @@ def main() -> None:
         app.main()
     except Exception:
         anotar(traceback.format_exc())
+        faltan = revisar_ventana()
+        if faltan:
+            anotar("faltan archivos del runtime: " + ", ".join(faltan))
         cartel(
             "Bot Pudin",
             "No pude abrir la ventana del bot.\n\n"
-            "El detalle quedo en panel.log.\n"
+            + (("Faltan archivos: " + ", ".join(faltan) + "\n\n") if faltan else "")
+            + "El detalle quedo en panel.log.\n"
             "Mientras tanto el panel funciona en el navegador.",
         )
         try:
