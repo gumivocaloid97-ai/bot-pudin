@@ -21,6 +21,11 @@ PUERTO = 8777
 
 log = logging.getLogger("pudin")
 
+try:
+    import latencia
+except ModuleNotFoundError:
+    latencia = None
+
 _arranque = time.time()
 
 
@@ -83,7 +88,7 @@ async def iniciar(cliente, arbol=None) -> bool:
             {"nombre": gremio.name, "miembros": gremio.member_count or 0}
             for gremio in cliente.guilds
         ]
-        latencia = cliente.latency
+        red = cliente.latency
         return web.json_response(
             {
                 "version": _version(),
@@ -92,7 +97,8 @@ async def iniciar(cliente, arbol=None) -> bool:
                 "servidores": servidores,
                 "miembros": sum(s["miembros"] for s in servidores),
                 "comandos": len(arbol.get_commands()) if arbol is not None else 0,
-                "ping": int(latencia * 1000) if latencia else 0,
+                "ping": int(red * 1000) if red else 0,
+                "bucle": round(latencia.ultimo(), 1) if latencia is not None else 0.0,
                 "encendido": int(time.time() - _arranque),
                 "desde": datetime.fromtimestamp(_arranque).strftime("%d/%m %H:%M"),
             }
