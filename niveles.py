@@ -14,6 +14,11 @@ GUILD_ORIGINAL = 1575699459680112721
 
 def conectar() -> sqlite3.Connection:
     conn = sqlite3.connect(RUTA_DB, check_same_thread=False)
+    # WAL + NORMAL: el commit deja de hacer fsync en cada mensaje.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA temp_store=MEMORY")
     columnas = [c[1] for c in conn.execute("PRAGMA table_info(niveles)")]
     migrar = bool(columnas) and "guild_id" not in columnas
     if migrar:
@@ -104,17 +109,26 @@ def sumar_xp(
     return nivel_anterior, nivel_nuevo, xp_total
 
 
+_ULTIMO: dict[tuple[int, int], int] = {}
+
+
 def puede_ganar_por_mensaje(
     conn: sqlite3.Connection, guild_id: int, user_id: int, enfriamiento: int
 ) -> bool:
+    """El enfriamiento vive en memoria: la base solo se toca cuando toca sumar."""
+    clave = (guild_id, user_id)
     ahora = int(time.time())
-    datos = conn.execute(
-        "SELECT ultimo_msg FROM niveles WHERE guild_id = ? AND user_id = ?",
-        (guild_id, user_id),
-    ).fetchone()
-    ultimo = datos[0] if datos else 0
+    ultimo = _ULTIMO.get(clave)
+    if ultimo is None:
+        datos = conn.execute(
+            "SELECT ultimo_msg FROM niveles WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ).fetchone()
+        ultimo = datos[0] if datos else 0
     if ahora - ultimo < enfriamiento:
+        _ULTIMO[clave] = ultimo
         return False
+    _ULTIMO[clave] = ahora
     conn.execute(
         "INSERT INTO niveles (guild_id, user_id, ultimo_msg) VALUES (?, ?, ?) "
         "ON CONFLICT(guild_id, user_id) DO UPDATE SET ultimo_msg = excluded.ultimo_msg",
