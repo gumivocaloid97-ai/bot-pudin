@@ -315,16 +315,20 @@ class Ventana:
 
     def arrancar(self) -> None:
         self.boton_arrancar.configure(state="disabled")
-        self.arrancando = True
-        self.encendido = time.time()
         try:
             import inicio
 
-            inicio.arrancar()
-            self.nota.configure(text="Arrancando el bot, dale unos segundos…")
+            arrancado = inicio.arrancar()
         except Exception as error:  # noqa: BLE001
             self.nota.configure(text=f"No pude arrancarlo: {error}")
             self.boton_arrancar.configure(state="normal")
+            return
+        if arrancado is False:
+            self.nota.configure(text="El bot ya está andando.")
+            return
+        self.arrancando = True
+        self.encendido = time.time()
+        self.nota.configure(text="Arrancando el bot, dale unos segundos…")
 
     # ---------- datos ----------
 
