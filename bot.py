@@ -2200,6 +2200,13 @@ def una_sola_instancia() -> bool:
 
 
 if __name__ == "__main__":
+    # "Apagar" es definitivo: nadie lo vuelve a prender hasta que lo pidas.
+    if (Path(__file__).resolve().parent / "detener.txt").exists():
+        log.info("Apagado a pedido: no arranco. Prendelo con Pudin.bat.")
+        print("  El bot esta apagado a pedido.")
+        print("  Para prenderlo: Pudin.bat (o Arrancar Bot.bat).")
+        raise SystemExit(0)
+
     if not una_sola_instancia():
         log.error("Ya hay otro Bot Pudin corriendo en esta PC. No arranco una segunda copia.")
         print("  Ya hay otro Bot Pudin corriendo.")
