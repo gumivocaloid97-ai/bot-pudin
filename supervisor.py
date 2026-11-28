@@ -15,6 +15,7 @@ REGISTRO = BASE / "supervisor.log"
 
 ESPERA = 15
 ESPERA_REINICIO = 3
+ESPERA_CASTIGO = 300
 FALLOS_MAXIMOS = 5
 PUERTO_BOT = 47777
 PUERTO_CANDADO = 47778
@@ -117,8 +118,15 @@ def main() -> None:
 
         fallos = fallos + 1 if segundos < 60 else 0
         if fallos >= FALLOS_MAXIMOS:
-            anotar(f"se cayo {FALLOS_MAXIMOS} veces seguidas, lo dejo apagado. Mira bot.log")
-            return
+            # No me rindo: el motivo suele ser pasajero (internet, Discord, token).
+            # Bajo el ritmo para no llenar el disco de intentos y sigo probando.
+            anotar(
+                f"se cayo {FALLOS_MAXIMOS} veces seguidas; espero {ESPERA_CASTIGO}s "
+                "y vuelvo a probar. Mira bot.log"
+            )
+            fallos = 0
+            esperar(ESPERA_CASTIGO)
+            continue
         esperar(ESPERA)
 
 
