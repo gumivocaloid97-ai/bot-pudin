@@ -101,6 +101,7 @@ def arrancar() -> None:
     if not SUPERVISOR.exists():
         print("  Falta supervisor.py en la carpeta.")
         return
+    (BASE / "detener.txt").unlink(missing_ok=True)
     if ocupado(47777) or ocupado(47778):
         print("  Ya hay un Bot Pudin andando. No arranco otro.")
         return
@@ -113,7 +114,7 @@ def arrancar() -> None:
             cwd=str(BASE),
             creationflags=SIN_VENTANA,
         )
-    except OSError as error:
+    except (OSError, ValueError) as error:
         MARCA.unlink(missing_ok=True)
         print(f"  No pude arrancarlo: {error}")
         return
