@@ -53,9 +53,23 @@ def quitar() -> None:
         print("  No estaba instalado.")
 
 
+def ocupado(puerto: int) -> bool:
+    """True si algo ya esta escuchando en ese puerto de esta PC."""
+    import socket
+
+    try:
+        with socket.create_connection(("127.0.0.1", puerto), timeout=0.4):
+            return True
+    except OSError:
+        return False
+
+
 def arrancar() -> None:
     if not SUPERVISOR.exists():
         print("  Falta supervisor.py en la carpeta.")
+        return
+    if ocupado(47777) or ocupado(47778):
+        print("  Ya hay un Bot Pudin andando. No arranco otro.")
         return
     subprocess.Popen(
         [str(python_oculto()), str(SUPERVISOR)],
