@@ -36,6 +36,7 @@ GUILDS_PRIVADOS = {1575699459680112721}
 
 # Si el usuario exporta sus cookies de YouTube aca, yt-dlp las usa automaticamente.
 COOKIES = Path(__file__).resolve().parent / "cookies.txt"
+COOKIES_NS = Path(__file__).resolve().parent / "cookies-convertidas.txt"
 
 # Canal fijo donde vive la tarjeta de musica (se configura con /panel).
 ARCHIVO_PANEL = Path(__file__).resolve().parent / "panel.txt"
@@ -230,17 +231,147 @@ def navegadores_disponibles() -> list[str]:
     return [nombre for nombre, ruta in candidatos.items() if ruta.is_dir()]
 
 
+def es_netscape(texto: str) -> bool:
+    for linea in texto.splitlines():
+        if not linea.strip() or linea.startswith("#"):
+            continue
+        return len(linea.split("\t")) == 7
+    return False
+
+
+def json_a_netscape(texto: str) -> str | None:
+    """Las extensiones del navegador exportan JSON; yt-dlp quiere Netscape."""
+    try:
+        datos = json.loads(texto)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(datos, list):
+        return None
+    lineas = ["# Netscape HTTP Cookie File"]
+    for cookie in datos:
+        if not isinstance(cookie, dict):
+            continue
+        dominio = str(cookie.get("domain") or "")
+        if not dominio:
+            continue
+        lineas.append(
+            "\t".join(
+                [
+                    dominio,
+                    "TRUE" if dominio.startswith(".") else "FALSE",
+                    str(cookie.get("path") or "/"),
+                    "TRUE" if cookie.get("secure") else "FALSE",
+                    str(int(cookie.get("expirationDate") or 0)),
+                    str(cookie.get("name") or ""),
+                    str(cookie.get("value") or ""),
+                ]
+            )
+        )
+    return "\n".join(lineas) + "\n"
+
+
+def archivo_cookies() -> tuple[Path | None, str]:
+    """El archivo que se le va a pasar a yt-dlp, y en que formato estaba."""
+    if not COOKIES.exists():
+        return None, "no existe"
+    try:
+        texto = COOKIES.read_text(encoding="utf-8", errors="replace")
+    except OSError as error:
+        return None, f"no lo pude leer: {error}"
+    if es_netscape(texto):
+        return COOKIES, "netscape"
+    convertido = json_a_netscape(texto)
+    if convertido:
+        try:
+            COOKIES_NS.write_text(convertido, encoding="utf-8")
+            return COOKIES_NS, "json (convertido)"
+        except OSError as error:
+            return None, f"no pude convertir: {error}"
+    return None, "formato desconocido"
+
+
 def variantes_descarga() -> list[dict]:
     """Formas de pedirle el audio a YouTube, de la mas simple a la mas completa."""
     variantes: list[dict] = []
-    if COOKIES.exists():
-        variantes.append({"cookiefile": str(COOKIES)})
+    archivo, _ = archivo_cookies()
+    if archivo is not None:
+        variantes.append({"cookiefile": str(archivo)})
     variantes.append({})
-    for cliente in ("tv", "web_safari", "mweb"):
+    for cliente in ("tv", "web_safari", "mweb", "web_embedded", "tv_embedded"):
         variantes.append({"extractor_args": {"youtube": {"player_client": [cliente]}}})
+    if archivo is not None:
+        variantes.append({"cookiefile": str(archivo), "extractor_args": {"youtube": {"player_client": ["web_safari"]}}})
     for navegador in navegadores_disponibles():
         variantes.append({"cookiesfrombrowser": (navegador,)})
     return variantes
+
+
+def revisar_cookies() -> list[str]:
+    """Informe de lo que hay en la carpeta, para saber que falla."""
+    lineas = [f"Carpeta: {Path(__file__).resolve().parent}"]
+    if not COOKIES.exists():
+        lineas.append("cookies.txt: NO EXISTE")
+        lineas.append("Tiene que llamarse asi, todo en minuscula, y estar en esa carpeta.")
+        return lineas
+
+    lineas.append(f"cookies.txt: SI ({COOKIES.stat().st_size} bytes)")
+    archivo, como = archivo_cookies()
+    lineas.append(f"Formato: {como}")
+    if archivo is None:
+        lineas.append("No lo pude usar. Exportalo de nuevo como 'Netscape' o como JSON.")
+        return lineas
+
+    texto = archivo.read_text(encoding="utf-8", errors="replace")
+    ahora = time.time()
+    youtube = 0
+    vencidas = 0
+    nombres = set()
+    for linea in texto.splitlines():
+        if not linea.strip() or linea.startswith("#"):
+            continue
+        partes = linea.split("\t")
+        if len(partes) != 7:
+            continue
+        dominio, _, _, _, expira, nombre, _ = partes
+        if "youtube" not in dominio and "google" not in dominio:
+            continue
+        youtube += 1
+        nombres.add(nombre)
+        try:
+            if 0 < int(expira) < ahora:
+                vencidas += 1
+        except ValueError:
+            pass
+
+    lineas.append(f"Cookies de YouTube/Google: {youtube}")
+    if vencidas:
+        lineas.append(f"Vencidas: {vencidas} -> volve a exportarlas")
+    logueado = {"__Secure-1PSID", "__Secure-3PSID", "SAPISID", "__Secure-1PAPISID"} & nombres
+    if logueado:
+        lineas.append("Cuenta logueada: SI")
+    else:
+        lineas.append("Cuenta logueada: NO (exportaste sin estar logueado en youtube.com)")
+    return lineas
+
+
+def probar_cookies() -> str:
+    """Baja un video corto de prueba y cuenta que paso."""
+    archivo, _ = archivo_cookies()
+    opciones = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "socket_timeout": 20,
+    }
+    if archivo is not None:
+        opciones["cookiefile"] = str(archivo)
+    try:
+        with yt_dlp.YoutubeDL(opciones) as ydl:
+            info = ydl.extract_info("https://www.youtube.com/watch?v=BaW_jenozKc", download=False)
+        return f"OK, YouTube respondio: '{info.get('title')}'"
+    except Exception as error:
+        return f"FALLO: {str(error)[:300]}"
 
 
 def es_lista(consulta: str) -> bool:
