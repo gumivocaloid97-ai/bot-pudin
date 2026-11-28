@@ -79,7 +79,7 @@ def _abrir_panel() -> None:
     if _hay_tkinter():
         try:
             subprocess.Popen(
-                [sys.executable, str(CARPETA / "app.py")],
+                [sys.executable, str(CARPETA / "pudin.py")],
                 cwd=str(CARPETA),
                 creationflags=0x08000000,  # sin consola
             )
