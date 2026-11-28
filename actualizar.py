@@ -18,7 +18,7 @@ ARCHIVOS = (
     "Iniciar Oculto.vbs", "Arrancar Bot.bat", "Detener Bot.bat",
     "Ver Registro.bat", "Instalar Inicio Automatico.bat",
     "Quitar Inicio Automatico.bat", "bandeja.py", "icono.png",
-    "panel.py", "panel.html", "Panel.bat",
+    "panel.py", "panel.html", "Panel.bat", "app.py",
 )
 ESPERA = 20
 
