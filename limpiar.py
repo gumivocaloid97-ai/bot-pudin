@@ -49,7 +49,7 @@ def main() -> None:
                 pass
 
     print()
-    print("  Listo. Ahora arrancá con Pudin.bat (una sola vez).")
+    print("  Listo. Ahora lo arranco de nuevo solo.")
     print()
 
 
