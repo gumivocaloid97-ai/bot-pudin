@@ -13,7 +13,7 @@ SALIDA = CARPETA / "diagnostico.txt"
 
 ARCHIVOS = (
     "bot.py", "app.py", "pudin.py", "panel.py", "panel.html", "bandeja.py",
-    "supervisor.py", "inicio.py", "icono.png", "version.txt",
+    "supervisor.py", "inicio.py", "icono.png", "version.txt", "ia.py",
 )
 RUNTIME = (
     "python.exe", "pythonw.exe", "python312.dll", "_tkinter.pyd",
@@ -68,6 +68,17 @@ def main() -> None:
     paquete = sitio / "tkinter" / "__init__.py"
     anotar(f"  {'tcl/':18} {'OK' if tcl.exists() else 'FALTA'}")
     anotar(f"  {'tkinter/':18} {'OK' if paquete.exists() else 'FALTA'}")
+
+    anotar("")
+    anotar("--- IA ---")
+    try:
+        import ia
+
+        anotar(f"  clave      : {'SI' if ia.configurada() else 'NO (respuestas basicas)'}")
+        anotar(f"  proveedor  : {ia.proveedor()}")
+        anotar(f"  modelo     : {ia.modelo()}")
+    except Exception as error:
+        anotar(f"  ia.py      : ERROR {error!r}")
 
     anotar("")
     anotar("--- probando la ventana ---")
