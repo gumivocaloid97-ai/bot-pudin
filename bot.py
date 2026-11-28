@@ -25,6 +25,8 @@ GUILD_PUDINES = 1575699459680112721
 
 _BANDEJA_LISTA = False
 _PANEL_LISTO = False
+_SINCRONIZADO = False
+_LATENCIA_LISTA = False
 
 
 def es_pudines(guild: discord.abc.Snowflake | None) -> bool:
@@ -44,6 +46,11 @@ try:
     import panel
 except ModuleNotFoundError:
     panel = None
+
+try:
+    import latencia
+except ModuleNotFoundError:
+    latencia = None
 
 try:
     import vigilancia
@@ -500,7 +507,7 @@ async def _retomar_musica() -> None:
 @client.event
 async def on_ready() -> None:
     log.info("Conectado como %s (%s)", client.user, client.user.id)
-    global _BANDEJA_LISTA, _PANEL_LISTO
+    global _BANDEJA_LISTA, _PANEL_LISTO, _SINCRONIZADO, _LATENCIA_LISTA
     if bandeja is not None and not _BANDEJA_LISTA:
         _BANDEJA_LISTA = bandeja.iniciar(client)
     if panel is not None and not _PANEL_LISTO:
@@ -509,13 +516,22 @@ async def on_ready() -> None:
     for servidor in client.guilds:
         log.info("Servidor: %s | miembros: %s", servidor.name, servidor.member_count)
 
-    for servidor in client.guilds:
-        try:
-            tree.copy_global_to(guild=servidor)
-            comandos = await tree.sync(guild=servidor)
-            log.info("Comandos sincronizados en %s: %s", servidor.name, [c.name for c in comandos])
-        except Exception as error:
-            log.error("No pude registrar comandos en %s: %s", servidor.name, error)
+    if latencia is not None and not _LATENCIA_LISTA:
+        _LATENCIA_LISTA = True
+        asyncio.create_task(latencia.vigilar())
+
+    # Sincronizar en cada reconexion gasta llamadas a Discord y frena el arranque.
+    if not _SINCRONIZADO:
+        _SINCRONIZADO = True
+        for servidor in client.guilds:
+            try:
+                tree.copy_global_to(guild=servidor)
+                comandos = await tree.sync(guild=servidor)
+                log.info(
+                    "Comandos sincronizados en %s: %s", servidor.name, [c.name for c in comandos]
+                )
+            except Exception as error:
+                log.error("No pude registrar comandos en %s: %s", servidor.name, error)
     if False:
         log.error("Sin permisos para registrar comandos (falta el scope applications.commands)")
 
@@ -2058,7 +2074,16 @@ async def comando_silenciar(
 # ---------- utilidad ----------
 @tree.command(name="ping", description="Muestra la latencia del bot")
 async def comando_ping(interaction: discord.Interaction) -> None:
-    await interaction.response.send_message(f"Latencia: **{round(client.latency * 1000)} ms**")
+    arranque = time.perf_counter()
+    await asyncio.sleep(0)
+    atraso = (time.perf_counter() - arranque) * 1000
+    peor = latencia.peor() if latencia is not None else 0.0
+    red = client.latency
+    ping = round(red * 1000) if red == red else 0  # nan cuando todavia no hay conexion
+    await interaction.response.send_message(
+        f"Latencia: **{ping} ms**\n"
+        f"Bucle: **{atraso:.1f} ms** (peor: {peor:.0f} ms)"
+    )
 
 
 @tree.command(name="servidor", description="Informacion del servidor")
