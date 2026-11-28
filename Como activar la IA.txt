@@ -1,0 +1,35 @@
+COMO ACTIVAR LA IA DE PUDIN
+===========================
+
+1) Consegui una clave gratis (no pide tarjeta):
+
+   Groq  -> https://console.groq.com
+            Crear cuenta -> API Keys -> Create API Key
+            La clave empieza con gsk_
+
+   Gemini -> https://aistudio.google.com/apikey
+
+2) En esta carpeta crea un archivo de texto llamado exactamente:
+
+       ia_clave.txt
+
+   Pega la clave adentro y nada mas (una sola linea).
+
+3) Reinicia: /reiniciar en Discord, o Pudin.bat.
+
+Ya esta. Proba con /ia o mencionando al bot en el chat.
+
+----------------------------------------
+OTRO PROVEEDOR (opcional)
+
+Crea ia.txt con una linea por dato:
+
+   proveedor=gemini      (groq, openai, openrouter, gemini, ollama)
+   modelo=               (vacio = el de fabrica)
+
+----------------------------------------
+LIMITES DE FABRICA
+
+- 8 segundos entre preguntas de la misma persona.
+- 80 preguntas por dia por persona.
+- Sin clave, el comando igual contesta, pero con respuestas basicas.
