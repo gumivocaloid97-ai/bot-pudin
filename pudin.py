@@ -52,6 +52,16 @@ def revisar_ventana() -> list[str]:
     return [nombre for nombre in necesarias if not (raiz / nombre).exists()]
 
 
+def puerto_abierto(puerto: int) -> bool:
+    import socket
+
+    try:
+        with socket.create_connection(("127.0.0.1", puerto), timeout=0.4):
+            return True
+    except OSError:
+        return False
+
+
 def bot_anda() -> bool:
     try:
         with urllib.request.urlopen(API + "/api/estado", timeout=1.0) as respuesta:
@@ -71,7 +81,12 @@ def main() -> None:
     except Exception:
         anotar(traceback.format_exc())
 
-    if not bot_anda():
+    if bot_anda():
+        anotar("el bot ya estaba andando")
+    elif puerto_abierto(47777) or puerto_abierto(47778):
+        anotar("el bot esta levantando, no arranco otro")
+        os.environ["PUDIN_ARRANCANDO"] = "1"
+    else:
         anotar("estaba apagado, lo arranco")
         try:
             import inicio
