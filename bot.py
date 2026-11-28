@@ -691,6 +691,18 @@ async def on_member_remove(member: discord.Member) -> None:
     if member.bot:
         return
     if await esta_baneado(member.guild, member):
+        return  # el baneo se registra y se anuncia en on_member_ban
+    sancion = await sancion_reciente(member.guild, member.id, intentos=2)
+    if sancion is not None:
+        accion, motivo, autor = sancion
+        tipo, color, verbo = ACCIONES_SANCION[accion]
+        await registrar(
+            member.guild,
+            tipo,
+            f"{member} `{member.id}`\nMotivo: {motivo or 'sin motivo'}\nPor: {autor}",
+            color,
+        )
+        await anunciar_sancion(member.guild, member, motivo, autor, tipo, color, verbo)
         return
     await registrar(member.guild, "Salio un miembro", f"{member} `{member.id}`", 0xE74C3C)
 
@@ -752,31 +764,56 @@ async def on_bulk_message_delete(mensajes) -> None:
     )
 
 
-async def motivo_del_baneo(guild: discord.Guild, user: discord.abc.User) -> tuple[str, str]:
-    """Motivo y autor del baneo. El registro de auditoria tarda un segundo en aparecer."""
-    for intento in range(4):
+ACCIONES_SANCION = {
+    discord.AuditLogAction.ban: ("Baneo", 0x992D22, "ya no está en el servidor"),
+    discord.AuditLogAction.kick: ("Expulsión", 0xE67E22, "fue expulsado del servidor"),
+    discord.AuditLogAction.member_prune: ("Inactividad", 0x95A5A6, "fue removido por inactividad"),
+}
+
+
+async def sancion_reciente(
+    guild: discord.Guild, user_id: int, segundos: int = 120, intentos: int = 2
+) -> tuple | None:
+    """Busca si esa persona acaba de ser baneada, expulsada o limpiada por inactividad."""
+    for intento in range(intentos):
         try:
-            async for entrada in guild.audit_logs(limit=8, action=discord.AuditLogAction.ban):
-                if entrada.target is not None and entrada.target.id == user.id:
-                    autor = entrada.user
-                    nombre = getattr(autor, "display_name", None) or str(autor) or "el staff"
-                    return (entrada.reason or "").strip(), nombre
+            async for entrada in guild.audit_logs(limit=15):
+                if entrada.action not in ACCIONES_SANCION:
+                    continue
+                if entrada.target is None or entrada.target.id != user_id:
+                    continue
+                edad = (
+                    datetime.datetime.now(datetime.timezone.utc) - entrada.created_at
+                ).total_seconds()
+                if edad > segundos:
+                    return None
+                autor = getattr(entrada.user, "display_name", None) or "el staff"
+                return entrada.action, (entrada.reason or "").strip(), autor
         except discord.HTTPException:
-            break
-        await asyncio.sleep(1)
-    return "", "el staff"
+            return None
+        if intento + 1 < intentos:
+            await asyncio.sleep(1)
+    return None
 
 
-async def anunciar_baneo(guild: discord.Guild, user: discord.abc.User, motivo: str,
-                         autor: str) -> None:
-    """Publica el baneo en anuncios para que quede a la vista de todos."""
+async def anunciar_sancion(
+    guild: discord.Guild,
+    user: discord.abc.User,
+    motivo: str,
+    autor: str,
+    tipo: str = "Baneo",
+    color: int = 0x992D22,
+    verbo: str = "ya no está en el servidor",
+) -> None:
+    """Publica la sancion en anuncios para que quede a la vista de todos."""
     canal = _canal(guild, "📢・anuncios")
     if canal is None:
         return
+    nombre = getattr(user, "display_name", None) or str(user)
     embed = discord.Embed(
-        title="🔨 Baneo",
-        description=f"**{getattr(user, 'display_name', None) or user}** ya no está en el servidor.",
-        color=0x992D22,
+        title=f"🔨 {tipo}",
+        description=f"**{nombre}** {verbo}.",
+        color=color,
     )
     embed.add_field(name="Motivo", value=(motivo or "no se especificó")[:1000], inline=False)
     embed.add_field(name="Decidido por", value=autor, inline=True)
@@ -784,12 +821,14 @@ async def anunciar_baneo(guild: discord.Guild, user: discord.abc.User, motivo: s
     try:
         await canal.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
     except discord.HTTPException:
-        log.warning("No pude anunciar el baneo de %s", user)
+        log.warning("No pude anunciar la sancion de %s", user)
 
 
 @client.event
 async def on_member_ban(guild: discord.Guild, user: discord.User) -> None:
-    motivo, autor = await motivo_del_baneo(guild, user)
+    sancion = await sancion_reciente(guild, user.id, intentos=4)
+    motivo = sancion[1] if sancion else ""
+    autor = sancion[2] if sancion else "el staff"
     await registrar(
         guild,
         "Baneo",
@@ -797,7 +836,7 @@ async def on_member_ban(guild: discord.Guild, user: discord.User) -> None:
         f"Motivo: {motivo or 'sin motivo'}\nPor: {autor}",
         0x992D22,
     )
-    await anunciar_baneo(guild, user, motivo, autor)
+    await anunciar_sancion(guild, user, motivo, autor)
 
 
 @client.event
@@ -1939,7 +1978,7 @@ async def comando_expulsar(interaction: discord.Interaction, usuario: discord.Me
         await interaction.response.send_message("No te puedo expulsar a vos mismo.", ephemeral=True)
         return
     try:
-        await usuario.kick(reason=f"{interaction.user}: {motivo}")
+        await usuario.kick(reason=motivo)
     except discord.Forbidden:
         await interaction.response.send_message("No pude expulsarlo: su rol esta por encima del mio.", ephemeral=True)
         return
