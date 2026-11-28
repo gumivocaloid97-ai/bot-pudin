@@ -60,8 +60,7 @@ def main() -> None:
         anotar(f"el bot termino con codigo {codigo} despues de {segundos}s")
 
         if (BASE / "detener.txt").exists():
-            (BASE / "detener.txt").unlink()
-            anotar("apagado a pedido")
+            anotar("apagado a pedido (la nota queda hasta que lo prendan)")
             return
 
         fallos = fallos + 1 if segundos < 60 else 0
