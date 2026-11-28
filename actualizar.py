@@ -11,15 +11,15 @@ from pathlib import Path
 REPO = "gumivocaloid97-ai/bot-pudin"
 API = f"https://api.github.com/repos/{REPO}/contents"
 CRUDO = f"https://raw.githubusercontent.com/{REPO}/main"
-ARCHIVOS = (
+ARCHIVOS = tuple(dict.fromkeys((
     "bot.py", "musica.py", "niveles.py", "salud.py", "actualizar.py",
     "vigilancia.py", "donaciones.py", "comunidad.py", "tickets.py",
     "colores.py", "edad.py", "radio.py", "supervisor.py", "inicio.py",
     "Iniciar Oculto.vbs", "Arrancar Bot.bat", "Detener Bot.bat",
     "Ver Registro.bat", "Instalar Inicio Automatico.bat",
-    "Quitar Inicio Automatico.bat", "Detener Bot.bat", "bandeja.py", "icono.png",
+    "Quitar Inicio Automatico.bat", "bandeja.py", "icono.png",
     "panel.py", "panel.html", "Panel.bat", "app.py", "pudin.py", "Pudin.bat", "diagnostico.py", "Diagnostico.bat", "limpiar.py", "Limpiar.bat",
-)
+)))
 ESPERA = 20
 
 CARPETA = Path(__file__).resolve().parent
