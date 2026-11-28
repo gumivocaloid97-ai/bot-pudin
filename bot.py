@@ -24,6 +24,7 @@ from discord.ext import tasks
 GUILD_PUDINES = 1575699459680112721
 
 _BANDEJA_LISTA = False
+_PANEL_LISTO = False
 
 
 def es_pudines(guild: discord.abc.Snowflake | None) -> bool:
@@ -38,6 +39,11 @@ try:
     import bandeja
 except ModuleNotFoundError:
     bandeja = None
+
+try:
+    import panel
+except ModuleNotFoundError:
+    panel = None
 
 try:
     import vigilancia
@@ -494,9 +500,11 @@ async def _retomar_musica() -> None:
 @client.event
 async def on_ready() -> None:
     log.info("Conectado como %s (%s)", client.user, client.user.id)
-    global _BANDEJA_LISTA
+    global _BANDEJA_LISTA, _PANEL_LISTO
     if bandeja is not None and not _BANDEJA_LISTA:
         _BANDEJA_LISTA = bandeja.iniciar(client)
+    if panel is not None and not _PANEL_LISTO:
+        _PANEL_LISTO = await panel.iniciar(client, tree)
     musica.anotar_cookies()
     for servidor in client.guilds:
         log.info("Servidor: %s | miembros: %s", servidor.name, servidor.member_count)
