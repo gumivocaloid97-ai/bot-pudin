@@ -904,6 +904,8 @@ async def avisar_entrada(member: discord.Member) -> None:
 
 async def recibir_miembro(member: discord.Member) -> None:
     guild = member.guild
+    if not es_pudines(guild):
+        return
     rol = rol_entrada(guild)
     if rol is not None and rol not in member.roles:
         try:
