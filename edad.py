@@ -20,6 +20,7 @@ al_cambiar = None
 
 AVISOS = Path(__file__).with_name("edad_avisos.json")
 ESPERA_MINUTOS = 60
+MAX_AVISOS = 3
 CANAL_EDAD = "✅・edad"
 
 
@@ -131,13 +132,26 @@ def _clave(guild_id: int, user_id: int) -> str:
     return f"{guild_id}-{user_id}"
 
 
+def veces_avisado(guild_id: int, user_id: int) -> int:
+    valor = _leer_avisos().get(_clave(guild_id, user_id))
+    if isinstance(valor, dict):
+        return int(valor.get("veces", 0))
+    return 1 if valor else 0
+
+
 def ya_avisado(guild_id: int, user_id: int) -> bool:
-    return _clave(guild_id, user_id) in _leer_avisos()
+    return veces_avisado(guild_id, user_id) >= MAX_AVISOS
 
 
-def marcar_avisado(guild_id: int, user_id: int) -> None:
+def marcar_avisado(guild_id: int, user_id: int, entregado: bool = False) -> None:
+    """Si el privado llego, queda hecho. Si no, se reintenta hasta MAX_AVISOS."""
     datos = _leer_avisos()
-    datos[_clave(guild_id, user_id)] = datetime.now(timezone.utc).isoformat()
+    clave = _clave(guild_id, user_id)
+    veces = MAX_AVISOS if entregado else veces_avisado(guild_id, user_id) + 1
+    datos[clave] = {
+        "veces": veces,
+        "ultima": datetime.now(timezone.utc).isoformat(),
+    }
     try:
         AVISOS.write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
     except OSError as error:
@@ -174,20 +188,21 @@ def _mensaje(guild: discord.Guild) -> discord.Embed:
     )
 
 
-async def avisar_faltantes(guild: discord.Guild, repetir: bool = False) -> tuple[int, int, list[str]]:
-    """Manda privado a quien no eligio. Devuelve (enviados, fallidos, nombres)."""
-    enviados = 0
-    fallidos = 0
-    nombres = []
+async def avisar_faltantes(
+    guild: discord.Guild, repetir: bool = False
+) -> tuple[list[str], list[str]]:
+    """Manda privado a quien no eligio. Devuelve (a quienes llego, a quienes no)."""
+    llegaron: list[str] = []
+    cerrados: list[str] = []
     embed = _mensaje(guild)
     for miembro in faltantes(guild):
         if not repetir and ya_avisado(guild.id, miembro.id):
             continue
-        nombres.append(miembro.display_name)
         try:
             await miembro.send(embed=embed)
-            enviados += 1
+            llegaron.append(miembro.display_name)
+            marcar_avisado(guild.id, miembro.id, entregado=True)
         except discord.HTTPException:
-            fallidos += 1
-        marcar_avisado(guild.id, miembro.id)
-    return enviados, fallidos, nombres
+            cerrados.append(miembro.display_name)
+            marcar_avisado(guild.id, miembro.id)
+    return llegaron, cerrados
