@@ -141,13 +141,22 @@ async def iniciar(cliente, arbol=None) -> bool:
             {"mensaje": "Abrí bot.log." if listo else "Todavía no hay bot.log."}
         )
 
-    async def despues(cerrar: bool) -> None:
+    async def despues(cerrar: bool, modo: str = "reiniciar") -> None:
         await asyncio.sleep(0.4)
         if cerrar:
-            await cliente.close()
-        import actualizar
+            try:
+                await cliente.close()
+            except Exception as error:  # noqa: BLE001
+                log.warning("No pude cerrar el cliente: %s", error)
+        if modo == "apagar":
+            # Apagar no reinicia nada: termino el proceso y el supervisor lee la nota.
+            os._exit(0)
+        try:
+            import actualizar
 
-        actualizar.reiniciar()
+            actualizar.reiniciar()
+        except Exception as error:  # noqa: BLE001
+            log.exception("Fallo al reiniciar: %s", error)
 
     async def reiniciar(_peticion):
         if _accion_ocupada("reiniciar"):
@@ -177,7 +186,7 @@ async def iniciar(cliente, arbol=None) -> bool:
             (CARPETA / "detener.txt").write_text("apagado desde el panel", encoding="utf-8")
         except OSError as error:
             log.warning("No pude escribir detener.txt: %s", error)
-        asyncio.create_task(despues(cerrar=True))
+        asyncio.create_task(despues(cerrar=True, modo="apagar"))
         return web.json_response(
             {"mensaje": "Apagando. Queda apagado hasta que aprietes Arrancar el bot."}
         )
