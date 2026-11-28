@@ -53,6 +53,11 @@ except ModuleNotFoundError:
     latencia = None
 
 try:
+    import ia
+except ModuleNotFoundError:
+    ia = None
+
+try:
     import vigilancia
 except ModuleNotFoundError:  # falta el archivo: el bot arranca igual y se actualiza
     vigilancia = None
@@ -512,6 +517,8 @@ async def on_ready() -> None:
         _BANDEJA_LISTA = bandeja.iniciar(client)
     if panel is not None and not _PANEL_LISTO:
         _PANEL_LISTO = await panel.iniciar(client, tree)
+    if ia is not None:
+        log.info("%s", ia.resumen())
     musica.anotar_cookies()
     for servidor in client.guilds:
         log.info("Servidor: %s | miembros: %s", servidor.name, servidor.member_count)
@@ -984,6 +991,33 @@ async def recibir_miembro(member: discord.Member) -> None:
         log.error("Sin permisos para escribir en %s", canal.name)
 
 
+async def _charla_ia(message: discord.Message) -> None:
+    """Contesta cuando mencionan al bot en el chat."""
+    pregunta = message.content or ""
+    if client.user is not None:
+        pregunta = pregunta.replace(client.user.mention, "")
+        pregunta = pregunta.replace(f"@{client.user.name}", "")
+    pregunta = pregunta.strip()
+    if not pregunta:
+        await message.reply("¿Qué querés preguntarme?", mention_author=False)
+        return
+    permitido, motivo = ia.puede_usar(message.author.id)
+    if not permitido:
+        await message.reply(motivo, mention_author=False)
+        return
+    try:
+        async with message.channel.typing():
+            respuesta = await ia.responder(pregunta, canal=message.channel.id)
+    except Exception as error:  # noqa: BLE001
+        log.error("La IA fallo: %s", error)
+        respuesta = "Se me trabó la cabeza. Probá de nuevo."
+    await message.reply(
+        respuesta[:1900],
+        mention_author=False,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+
+
 @client.event
 async def on_message(message: discord.Message) -> None:
     if message.guild is None:
@@ -991,6 +1025,13 @@ async def on_message(message: discord.Message) -> None:
     if message.author.bot:
         return
     if await vigilar(message):
+        return
+    if (
+        ia is not None
+        and client.user is not None
+        and client.user in message.mentions
+    ):
+        await _charla_ia(message)
         return
     if not niveles.puede_ganar_por_mensaje(
         db, message.guild.id, message.author.id, ENFRIAMIENTO_MENSAJE
@@ -2083,6 +2124,23 @@ async def comando_ping(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(
         f"Latencia: **{ping} ms**\n"
         f"Bucle: **{atraso:.1f} ms** (peor: {peor:.0f} ms)"
+    )
+
+
+@tree.command(name="ia", description="Preguntale algo a la IA")
+@app_commands.describe(pregunta="Lo que queres saber")
+async def comando_ia(interaction: discord.Interaction, pregunta: str) -> None:
+    if ia is None:
+        await interaction.response.send_message("La IA no esta disponible.", ephemeral=True)
+        return
+    permitido, motivo = ia.puede_usar(interaction.user.id)
+    if not permitido:
+        await interaction.response.send_message(motivo, ephemeral=True)
+        return
+    await interaction.response.defer()
+    respuesta = await ia.responder(pregunta, canal=interaction.channel_id or 0)
+    await interaction.followup.send(
+        respuesta[:1900], allowed_mentions=discord.AllowedMentions.none()
     )
 
 
