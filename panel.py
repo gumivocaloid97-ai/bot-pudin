@@ -21,6 +21,18 @@ PUERTO = 8777
 
 log = logging.getLogger("pudin")
 
+_ACCION = {"cuando": 0.0, "cual": ""}
+SEGUNDOS_ENTRE_ACCIONES = 12
+
+
+def _accion_ocupada(nombre: str) -> bool:
+    """Evita que varios clics seguidos disparen reinicios en paralelo."""
+    if time.time() - _ACCION["cuando"] < SEGUNDOS_ENTRE_ACCIONES:
+        return True
+    _ACCION["cuando"] = time.time()
+    _ACCION["cual"] = nombre
+    return False
+
 try:
     import latencia
 except ModuleNotFoundError:
@@ -132,16 +144,28 @@ async def iniciar(cliente, arbol=None) -> bool:
         actualizar.reiniciar()
 
     async def reiniciar(_peticion):
+        if _accion_ocupada("reiniciar"):
+            return web.json_response(
+                {"mensaje": "Ya hay una acción en curso. Esperá unos segundos."}, status=409
+            )
         log.info("Reinicio pedido desde el panel")
         asyncio.create_task(despues(cerrar=True))
         return web.json_response({"mensaje": "Reiniciando el bot…"})
 
     async def actualizar(_peticion):
+        if _accion_ocupada("actualizar"):
+            return web.json_response(
+                {"mensaje": "Ya hay una acción en curso. Esperá unos segundos."}, status=409
+            )
         log.info("Actualizacion pedida desde el panel")
         asyncio.create_task(despues(cerrar=True))
         return web.json_response({"mensaje": "Reiniciando y buscando versión nueva…"})
 
     async def detener(_peticion):
+        if _accion_ocupada("detener"):
+            return web.json_response(
+                {"mensaje": "Ya hay una acción en curso. Esperá unos segundos."}, status=409
+            )
         log.info("Apagado pedido desde el panel")
         try:
             (CARPETA / "detener.txt").write_text("apagado desde el panel", encoding="utf-8")
