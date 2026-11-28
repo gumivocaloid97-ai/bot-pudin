@@ -1893,6 +1893,16 @@ async def comando_ayuda(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(embed=embed)
 
 
+@tree.command(name="cookies", description="Revisa si el archivo de cookies de YouTube sirve")
+@app_commands.default_permissions(administrator=True)
+async def comando_cookies(interaction: discord.Interaction) -> None:
+    await interaction.response.defer(ephemeral=True)
+    lineas = musica.revisar_cookies()
+    prueba = await asyncio.to_thread(musica.probar_cookies)
+    texto = "\n".join(lineas + ["", f"Prueba real: {prueba}"])
+    await interaction.followup.send(texto[:1900], ephemeral=True)
+
+
 @tree.command(name="reiniciar", description="Reinicia el bot sin buscar actualizaciones")
 @app_commands.default_permissions(administrator=True)
 async def comando_reiniciar(interaction: discord.Interaction) -> None:
