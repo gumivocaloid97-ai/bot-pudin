@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bot Pudin v2 · Panel</title>
+<style>
+  :root{
+    --fondo:#101216; --panel:#181b21; --panel2:#1f232b; --borde:#2a2f39;
+    --texto:#e8eaee; --tenue:#8b93a1; --caramelo:#f6c48a; --naranja:#e0a25c;
+    --verde:#3ecf8e; --amarillo:#f5a623; --rojo:#e5484d; --azul:#5aa9e6;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:radial-gradient(1200px 600px at 20% -10%, #23262e 0%, var(--fondo) 55%);
+    color:var(--texto); font:15px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif;
+    min-height:100vh;
+  }
+  .envuelto{max-width:1040px; margin:0 auto; padding:26px 22px 40px}
+  header{display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:22px}
+  .logo{
+    width:46px;height:46px;border-radius:14px;display:grid;place-items:center;
+    background:linear-gradient(160deg,#3a2d22,#241d18); border:1px solid #4a3628;
+  }
+  .logo img{display:block;image-rendering:auto}
+  h1{font-size:20px;margin:0;letter-spacing:.2px}
+  .sub{color:var(--tenue);font-size:13px}
+  .chip{
+    font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--borde);
+    color:var(--tenue);background:var(--panel);font-variant-numeric:tabular-nums;
+  }
+  .estado{margin-left:auto;display:flex;align-items:center;gap:9px;padding:8px 14px;border-radius:999px;
+    background:var(--panel);border:1px solid var(--borde);font-size:13px;font-weight:600}
+  .punto{width:9px;height:9px;border-radius:50%;background:var(--tenue)}
+  .punto.vivo{background:var(--verde);box-shadow:0 0 0 0 rgba(62,207,142,.6);animation:lata 2s infinite}
+  .punto.medio{background:var(--amarillo)}
+  .punto.muerto{background:var(--rojo)}
+  @keyframes lata{70%{box-shadow:0 0 0 9px rgba(62,207,142,0)}100%{box-shadow:0 0 0 0 rgba(62,207,142,0)}}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+  .tarjeta{background:var(--panel);border:1px solid var(--borde);border-radius:14px;padding:14px 16px}
+  .tarjeta .rotulo{font-size:11px;text-transform:uppercase;letter-spacing:.9px;color:var(--tenue);margin-bottom:6px}
+  .tarjeta .valor{font-size:23px;font-weight:650;font-variant-numeric:tabular-nums}
+  .tarjeta .detalle{font-size:12px;color:var(--tenue);margin-top:2px}
+  .acciones{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+  button{
+    font:inherit;font-size:14px;font-weight:600;color:var(--texto);cursor:pointer;
+    background:var(--panel2);border:1px solid var(--borde);border-radius:11px;padding:10px 16px;
+    transition:transform .06s ease, background .15s ease, border-color .15s ease;
+  }
+  button:hover{background:#262b34;border-color:#39404c}
+  button:active{transform:translateY(1px)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.principal{background:linear-gradient(180deg,#4a3728,#33261c);border-color:#5d4330;color:#f8d5a8}
+  button.principal:hover{background:linear-gradient(180deg,#573f2d,#3b2b1f)}
+  button.peligro{color:#ffb3b5;border-color:#4a2b2e;background:#2a1c1e}
+  button.peligro:hover{background:#362325}
+  .consola{border:1px solid var(--borde);border-radius:14px;overflow:hidden;background:#0c0e11}
+  .consola header{display:flex;align-items:center;gap:10px;padding:11px 15px;margin:0;background:var(--panel);border-bottom:1px solid var(--borde)}
+  .consola header span{font-size:12px;text-transform:uppercase;letter-spacing:.9px;color:var(--tenue);font-weight:600}
+  .consola header .chip{margin-left:auto}
+  #log{
+    height:clamp(240px, calc(100vh - 470px), 620px);overflow:auto;padding:12px 15px;margin:0;
+    font:12.5px/1.6 "Cascadia Mono",Consolas,"Courier New",monospace;white-space:pre-wrap;word-break:break-word;
+  }
+  #log .hora{color:#5c6470}
+  #log .info{color:#a9b2c0}
+  #log .aviso{color:#f5c56b}
+  #log .error{color:#ff8b8e}
+  .pie{margin-top:16px;font-size:12px;color:var(--tenue);display:flex;gap:14px;flex-wrap:wrap}
+  .servidores{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+  .servidor{font-size:12.5px;color:#cfd5de;background:var(--panel);border:1px solid var(--borde);
+    border-radius:10px;padding:7px 12px;display:flex;gap:8px;align-items:center}
+  .servidor b{color:var(--caramelo);font-weight:600;font-variant-numeric:tabular-nums}
+  .aviso-suelto{font-size:13px;color:var(--amarillo);margin:-6px 0 16px}
+</style>
+</head>
+<body>
+<div class="envuelto">
+  <header>
+    <div class="logo"><img src="/icono.png" alt="" width="34" height="34"></div>
+    <div>
+      <h1>Bot Pudin v2</h1>
+      <div class="sub" id="usuario">Panel de control · solo esta PC</div>
+    </div>
+    <span class="chip" id="version">v—</span>
+    <div class="estado"><span class="punto" id="punto"></span><span id="texto-estado">Conectando…</span></div>
+  </header>
+
+  <section class="stats">
+    <div class="tarjeta"><div class="rotulo">Servidores</div><div class="valor" id="servidores">—</div><div class="detalle">en total</div></div>
+    <div class="tarjeta"><div class="rotulo">Miembros</div><div class="valor" id="miembros">—</div><div class="detalle">sumados</div></div>
+    <div class="tarjeta"><div class="rotulo">Comandos</div><div class="valor" id="comandos">—</div><div class="detalle">disponibles</div></div>
+    <div class="tarjeta"><div class="rotulo">En línea</div><div class="valor" id="uptime">—</div><div class="detalle" id="desde">—</div></div>
+    <div class="tarjeta"><div class="rotulo">Latencia</div><div class="valor" id="ping">—</div><div class="detalle">a Discord</div></div>
+  </section>
+
+  <div class="servidores" id="lista-servidores"></div>
+
+  <section class="acciones">
+    <button class="principal" onclick="accion('reiniciar')">Reiniciar</button>
+    <button onclick="accion('actualizar')">Buscar actualización</button>
+    <button onclick="accion('carpeta')">Abrir la carpeta</button>
+    <button onclick="accion('registro')">Abrir bot.log</button>
+    <button class="peligro" onclick="accion('detener')">Apagar el bot</button>
+  </section>
+
+  <section class="consola">
+    <header><span>Registro en vivo</span><span class="chip" id="lineas">—</span></header>
+    <pre id="log"></pre>
+  </section>
+
+  <div class="pie">
+    <span id="nota">Se actualiza solo cada 2 segundos.</span>
+    <span id="actualizado">—</span>
+    <span>bot.log</span>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let primeraVez = true;
+
+function escapar(t) {
+  return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function pintarLinea(linea) {
+  const m = linea.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s+(INFO|WARNING|ERROR|DEBUG)\s?(.*)$/);
+  if (!m) return escapar(linea);
+  const clase = m[2] === "ERROR" ? "error" : m[2] === "WARNING" ? "aviso" : "info";
+  return `<span class="hora">${m[1].slice(11, 19)}</span> <span class="${clase}">${escapar(m[3])}</span>`;
+}
+
+function humano(segundos) {
+  if (segundos < 60) return `${Math.floor(segundos)}s`;
+  if (segundos < 3600) return `${Math.floor(segundos / 60)}m ${Math.floor(segundos % 60)}s`;
+  if (segundos < 86400) return `${Math.floor(segundos / 3600)}h ${Math.floor((segundos % 3600) / 60)}m`;
+  const dias = Math.floor(segundos / 86400);
+  return `${dias}d ${Math.floor((segundos % 86400) / 3600)}h`;
+}
+
+async function estado() {
+  try {
+    const respuesta = await fetch("/api/estado", { cache: "no-store" });
+    if (!respuesta.ok) throw new Error("estado " + respuesta.status);
+    const d = await respuesta.json();
+
+    $("version").textContent = "v" + d.version;
+    if (d.usuario) $("usuario").textContent = d.usuario + " · solo esta PC";
+    $("servidores").textContent = d.servidores.length;
+    $("miembros").textContent = d.miembros;
+    $("comandos").textContent = d.comandos;
+    $("uptime").textContent = humano(d.encendido);
+    $("desde").textContent = d.desde || "—";
+    $("ping").textContent = d.ping ? d.ping + " ms" : "—";
+    $("actualizado").textContent = "Actualizado " + new Date().toLocaleTimeString("es-AR");
+
+    $("lista-servidores").innerHTML = d.servidores.map(s =>
+      `<div class="servidor">${escapar(s.nombre)} <b>${s.miembros}</b></div>`).join("");
+
+    const punto = $("punto");
+    if (!d.conectado) {
+      punto.className = "punto medio";
+      $("texto-estado").textContent = "Arrancando…";
+    } else {
+      punto.className = "punto vivo";
+      $("texto-estado").textContent = "Conectado";
+    }
+  } catch (error) {
+    $("punto").className = "punto muerto";
+    $("texto-estado").textContent = "Sin conexión";
+    $("nota").textContent = "El bot no responde. Abrilo con Arrancar Bot.bat.";
+  }
+}
+
+async function registro() {
+  try {
+    const respuesta = await fetch("/api/log?lineas=150", { cache: "no-store" });
+    const d = await respuesta.json();
+    const caja = $("log");
+    const pegado = caja.scrollTop + caja.clientHeight >= caja.scrollHeight - 40;
+    caja.innerHTML = d.lineas.map(pintarLinea).join("\n");
+    $("lineas").textContent = d.lineas.length + " líneas";
+    if (pegado || primeraVez) caja.scrollTop = caja.scrollHeight;
+    primeraVez = false;
+  } catch (error) { /* el panel cerro */ }
+}
+
+async function accion(nombre) {
+  if (nombre === "detener" && !confirm("¿Apagar el bot? Después lo arrancás con Arrancar Bot.bat.")) return;
+  if (nombre === "reiniciar" && !confirm("¿Reiniciar el bot?")) return;
+  try {
+    const respuesta = await fetch("/api/" + nombre, { method: "POST" });
+    const d = await respuesta.json();
+    if (d.mensaje) $("nota").textContent = d.mensaje;
+  } catch (error) {
+    $("nota").textContent = "El bot no responde.";
+  }
+}
+
+estado();
+registro();
+setInterval(estado, 2000);
+setInterval(registro, 3000);
+</script>
+</body>
+</html>
