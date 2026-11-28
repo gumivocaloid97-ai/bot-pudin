@@ -223,6 +223,9 @@ def asegurar_tkinter() -> bool:
                 destino.parent.mkdir(parents=True, exist_ok=True)
                 destino.write_bytes(z.read(nombre))
         print(f"[tkinter] listo: {len(datos) // 1024} KB")
+        if falta_tkinter():
+            print("[tkinter] se copio pero todavia no carga: falta alguna DLL")
+            return False
         return True
     except Exception as error:
         print(f"[tkinter] no pude instalarlo: {error!r}")
