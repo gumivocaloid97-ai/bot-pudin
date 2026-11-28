@@ -97,17 +97,18 @@ def ocupado(puerto: int) -> bool:
         return False
 
 
-def arrancar() -> None:
+def arrancar() -> bool:
+    """Arranca el bot. Devuelve False si ya habia uno (no duplica)."""
     if not SUPERVISOR.exists():
         print("  Falta supervisor.py en la carpeta.")
-        return
+        return False
     (BASE / "detener.txt").unlink(missing_ok=True)
     if ocupado(47777) or ocupado(47778):
         print("  Ya hay un Bot Pudin andando. No arranco otro.")
-        return
+        return False
     if not _tomar_marca():
         print("  Ya hay un arranque en curso. Espera unos segundos.")
-        return
+        return False
     try:
         subprocess.Popen(
             [str(python_oculto()), str(SUPERVISOR)],
@@ -117,8 +118,9 @@ def arrancar() -> None:
     except (OSError, ValueError) as error:
         MARCA.unlink(missing_ok=True)
         print(f"  No pude arrancarlo: {error}")
-        return
+        return False
     print("  Bot arrancado en segundo plano.")
+    return True
 
 
 def estado() -> None:
