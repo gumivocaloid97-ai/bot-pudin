@@ -676,9 +676,21 @@ async def on_member_join(member: discord.Member) -> None:
     await recibir_miembro(member)
 
 
+async def esta_baneado(guild: discord.Guild, user: discord.abc.User) -> bool:
+    try:
+        await guild.fetch_ban(user)
+        return True
+    except discord.NotFound:
+        return False
+    except discord.HTTPException:
+        return False
+
+
 @client.event
 async def on_member_remove(member: discord.Member) -> None:
     if member.bot:
+        return
+    if await esta_baneado(member.guild, member):
         return
     await registrar(member.guild, "Salio un miembro", f"{member} `{member.id}`", 0xE74C3C)
 
@@ -740,9 +752,52 @@ async def on_bulk_message_delete(mensajes) -> None:
     )
 
 
+async def motivo_del_baneo(guild: discord.Guild, user: discord.abc.User) -> tuple[str, str]:
+    """Motivo y autor del baneo. El registro de auditoria tarda un segundo en aparecer."""
+    for intento in range(4):
+        try:
+            async for entrada in guild.audit_logs(limit=8, action=discord.AuditLogAction.ban):
+                if entrada.target is not None and entrada.target.id == user.id:
+                    autor = entrada.user
+                    nombre = getattr(autor, "display_name", None) or str(autor) or "el staff"
+                    return (entrada.reason or "").strip(), nombre
+        except discord.HTTPException:
+            break
+        await asyncio.sleep(1)
+    return "", "el staff"
+
+
+async def anunciar_baneo(guild: discord.Guild, user: discord.abc.User, motivo: str,
+                         autor: str) -> None:
+    """Publica el baneo en anuncios para que quede a la vista de todos."""
+    canal = _canal(guild, "📢・anuncios")
+    if canal is None:
+        return
+    embed = discord.Embed(
+        title="🔨 Baneo",
+        description=f"**{getattr(user, 'display_name', None) or user}** ya no está en el servidor.",
+        color=0x992D22,
+    )
+    embed.add_field(name="Motivo", value=(motivo or "no se especificó")[:1000], inline=False)
+    embed.add_field(name="Decidido por", value=autor, inline=True)
+    embed.set_footer(text=f"ID {user.id}")
+    try:
+        await canal.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+    except discord.HTTPException:
+        log.warning("No pude anunciar el baneo de %s", user)
+
+
 @client.event
 async def on_member_ban(guild: discord.Guild, user: discord.User) -> None:
-    await registrar(guild, "Baneo", f"{user} `{user.id}`", 0x992D22)
+    motivo, autor = await motivo_del_baneo(guild, user)
+    await registrar(
+        guild,
+        "Baneo",
+        f"{getattr(user, 'display_name', None) or user} `{user.id}`\n"
+        f"Motivo: {motivo or 'sin motivo'}\nPor: {autor}",
+        0x992D22,
+    )
+    await anunciar_baneo(guild, user, motivo, autor)
 
 
 @client.event
@@ -1264,7 +1319,7 @@ async def comando_ban_grooming(
         )
         return
     await interaction.response.defer(ephemeral=True)
-    motivo = f"Grooming/acoso a menores. Reportado por {interaction.user}. {prueba}".strip()
+    motivo = f"Grooming o acoso a menores. Reportado por {interaction.user}. {prueba}".strip()
     try:
         await miembro.ban(reason=motivo[:500], delete_message_days=7)
     except discord.Forbidden:
@@ -1902,7 +1957,7 @@ async def comando_banear(interaction: discord.Interaction, usuario: discord.Memb
         await interaction.response.send_message("No te puedo banear a vos mismo.", ephemeral=True)
         return
     try:
-        await usuario.ban(reason=f"{interaction.user}: {motivo}", delete_message_days=0)
+        await usuario.ban(reason=motivo, delete_message_days=0)
     except discord.Forbidden:
         await interaction.response.send_message("No pude banearlo: su rol esta por encima del mio.", ephemeral=True)
         return
