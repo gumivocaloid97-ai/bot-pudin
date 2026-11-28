@@ -131,6 +131,28 @@ intents.bans = True
 
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
+
+
+@tree.error
+async def _error_de_comando(
+    interaction: discord.Interaction, error: app_commands.AppCommandError
+) -> None:
+    """Un solo renglon en el registro, salvo que sea un problema de verdad."""
+    original = error.original if isinstance(error, app_commands.CommandInvokeError) else error
+    nombre = interaction.command.name if interaction.command else "?"
+
+    if isinstance(original, discord.NotFound) and original.code == 10062:
+        log.warning("/%s: la interaccion vencio antes de responder (10062)", nombre)
+        return
+
+    log.error("/%s fallo: %s", nombre, original)
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send("Algo fallo. Mira bot.log.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Algo fallo. Mira bot.log.", ephemeral=True)
+    except discord.HTTPException:
+        pass
 db = niveles.conectar()
 
 
@@ -1931,7 +1953,35 @@ if edad is not None:
     edad.al_cambiar = _registrar_edad
 
 
+_CANDADO = None
+
+
+def una_sola_instancia() -> bool:
+    """Dos copias del bot con el mismo token rompen los comandos."""
+    global _CANDADO
+    import socket
+
+    for intento in range(5):
+        try:
+            _CANDADO = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            _CANDADO.bind(("127.0.0.1", 47777))
+            _CANDADO.listen(1)
+            return True
+        except OSError:
+            if _CANDADO is not None:
+                _CANDADO.close()
+                _CANDADO = None
+            time.sleep(1)
+    return False
+
+
 if __name__ == "__main__":
+    if not una_sola_instancia():
+        log.error("Ya hay otro Bot Pudin corriendo en esta PC. No arranco una segunda copia.")
+        print("  Ya hay otro Bot Pudin corriendo.")
+        print("  Cerra esa copia con Detener Bot.bat y volve a intentar.")
+        time.sleep(8)
+        raise SystemExit(0)
     if actualizar.reparar():
         actualizar.reiniciar()
     if actualizar.buscar():
