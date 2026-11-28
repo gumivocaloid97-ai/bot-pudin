@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -20,6 +21,7 @@ CARPETA = Path(__file__).resolve().parent
 ICONO = CARPETA / "icono.png"
 REGISTRO = CARPETA / "bot.log"
 PUERTO_CANDADO = 47777
+PUERTO_VENTANA = 8778
 
 
 def _abrir(ruta: Path) -> None:
@@ -44,6 +46,24 @@ def _imagen():
     return Image.new("RGBA", (64, 64), (246, 196, 138, 255))
 
 
+def _avisar_ventana(orden: str) -> bool:
+    """Habla con la ventana nativa si esta abierta (o escondida en la bandeja)."""
+    try:
+        with socket.create_connection(("127.0.0.1", PUERTO_VENTANA), timeout=0.5) as caño:
+            caño.sendall(orden.encode("utf-8"))
+        return True
+    except OSError:
+        return False
+
+
+def _hay_tkinter() -> bool:
+    try:
+        import tkinter  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
 NAVEGADORES_APP = (
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
@@ -53,7 +73,28 @@ NAVEGADORES_APP = (
 
 
 def _abrir_panel() -> None:
-    """Abre el panel como ventana de app, sin barra del navegador."""
+    """Abre la ventana del bot; si ya esta abierta, la trae al frente."""
+    if _avisar_ventana("mostrar"):
+        return
+    if _hay_tkinter():
+        try:
+            subprocess.Popen(
+                [sys.executable, str(CARPETA / "app.py")],
+                cwd=str(CARPETA),
+                creationflags=0x08000000,  # sin consola
+            )
+            return
+        except OSError as error:
+            log.warning("No pude abrir la ventana: %s", error)
+    _panel_en_el_navegador()
+
+
+def _cerrar_panel() -> None:
+    if not _avisar_ventana("salir"):
+        log.info("No habia ninguna ventana abierta")
+
+
+def _panel_en_el_navegador() -> None:
     import webbrowser
 
     for exe in NAVEGADORES_APP:
@@ -114,6 +155,7 @@ def iniciar(cliente) -> bool:
         pystray.MenuItem(estado, accion(lambda: None), enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Abrir el panel", accion(_abrir_panel), default=True),
+        pystray.MenuItem("Cerrar el panel", accion(_cerrar_panel)),
         pystray.MenuItem("Abrir el registro", accion(lambda: _abrir(REGISTRO))),
         pystray.MenuItem("Abrir la carpeta", accion(lambda: _abrir(CARPETA))),
         pystray.Menu.SEPARATOR,
