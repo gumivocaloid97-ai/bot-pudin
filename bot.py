@@ -2182,6 +2182,7 @@ if __name__ == "__main__":
         time.sleep(8)
         raise SystemExit(0)
     actualizar.asegurar_paquetes()
+    actualizar.asegurar_tkinter()
     if actualizar.reparar():
         actualizar.reiniciar()
     if actualizar.buscar():
