@@ -23,6 +23,8 @@ from discord.ext import tasks
 # hasta que se pida expresamente.
 GUILD_PUDINES = 1575699459680112721
 
+_BANDEJA_LISTA = False
+
 
 def es_pudines(guild: discord.abc.Snowflake | None) -> bool:
     return getattr(guild, "id", None) == GUILD_PUDINES
@@ -31,6 +33,11 @@ import actualizar
 import musica
 import niveles
 import salud
+
+try:
+    import bandeja
+except ModuleNotFoundError:
+    bandeja = None
 
 try:
     import vigilancia
@@ -487,6 +494,9 @@ async def _retomar_musica() -> None:
 @client.event
 async def on_ready() -> None:
     log.info("Conectado como %s (%s)", client.user, client.user.id)
+    global _BANDEJA_LISTA
+    if bandeja is not None and not _BANDEJA_LISTA:
+        _BANDEJA_LISTA = bandeja.iniciar(client)
     musica.anotar_cookies()
     for servidor in client.guilds:
         log.info("Servidor: %s | miembros: %s", servidor.name, servidor.member_count)
@@ -2163,6 +2173,7 @@ if __name__ == "__main__":
         print("  Cerra esa copia con Detener Bot.bat y volve a intentar.")
         time.sleep(8)
         raise SystemExit(0)
+    actualizar.asegurar_paquetes()
     if actualizar.reparar():
         actualizar.reiniciar()
     if actualizar.buscar():
