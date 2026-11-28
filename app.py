@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import socket
 import threading
+import time
 import tkinter as tk
 import urllib.error
 import urllib.request
@@ -62,6 +64,8 @@ class Ventana:
         self.raiz = raiz
         self.ordenes: queue.Queue[str] = queue.Queue()
         self.chips: list[tk.Label] = []
+        self.encendido = time.time()
+        self.arrancando = os.environ.get("PUDIN_ARRANCANDO") == "1"
         self.dibujar()
         self.escuchar()
         if not self.viva():
@@ -290,10 +294,17 @@ class Ventana:
         try:
             datos = pedir("/api/estado")
         except (urllib.error.URLError, OSError, ValueError):
-            self.estado.configure(text="  Apagado  ", bg="#2e1a1c", fg=ROJO)
-            self.nota.configure(text="El bot no está corriendo. Apretá Arrancar el bot.")
-            self.boton_arrancar.configure(state="normal")
-            self.raiz.after(3000, self.refrescar)
+            esperando = self.arrancando and time.time() - self.encendido < 75
+            if esperando:
+                self.estado.configure(text="  Arrancando…  ", bg="#2e2716", fg=AMARILLO)
+                self.nota.configure(text="Arrancando el bot, dale unos segundos…")
+                self.boton_arrancar.configure(state="disabled")
+            else:
+                self.arrancando = False
+                self.estado.configure(text="  Apagado  ", bg="#2e1a1c", fg=ROJO)
+                self.nota.configure(text="El bot no está corriendo. Apretá Arrancar el bot.")
+                self.boton_arrancar.configure(state="normal")
+            self.raiz.after(2500, self.refrescar)
             return
 
         self.version.configure(text="v" + datos.get("version", "—"))
@@ -312,6 +323,7 @@ class Ventana:
 
         self.pintar_servidores(datos.get("servidores", []))
 
+        self.arrancando = False
         self.boton_arrancar.configure(state="disabled")
         self.raiz.after(2000, self.refrescar)
 
