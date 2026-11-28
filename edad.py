@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import discord
 
@@ -14,6 +17,10 @@ GRUPOS = (ROL_ADULTO, ROL_MENOR)
 
 # lo conecta bot.py para dejar constancia en el canal de registro
 al_cambiar = None
+
+AVISOS = Path(__file__).with_name("edad_avisos.json")
+ESPERA_MINUTOS = 60
+CANAL_EDAD = "✅・edad"
 
 
 def rol(guild: discord.Guild, nombre: str) -> discord.Role | None:
@@ -111,3 +118,76 @@ class PanelEdad(discord.ui.View):
     )
     async def menor(self, interaction: discord.Interaction, boton: discord.ui.Button) -> None:
         await self._poner(interaction, ROL_MENOR, "menor de 18")
+
+
+def _leer_avisos() -> dict:
+    try:
+        return json.loads(AVISOS.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _clave(guild_id: int, user_id: int) -> str:
+    return f"{guild_id}-{user_id}"
+
+
+def ya_avisado(guild_id: int, user_id: int) -> bool:
+    return _clave(guild_id, user_id) in _leer_avisos()
+
+
+def marcar_avisado(guild_id: int, user_id: int) -> None:
+    datos = _leer_avisos()
+    datos[_clave(guild_id, user_id)] = datetime.now(timezone.utc).isoformat()
+    try:
+        AVISOS.write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
+    except OSError as error:
+        log.warning("No pude guardar el aviso de edad: %s", error)
+
+
+def falta_elegir(miembro: discord.Member, ahora: datetime | None = None) -> bool:
+    """True si es humano, entro hace rato y todavia no tiene grupo."""
+    if miembro.bot or grupo_de(miembro) is not None:
+        return False
+    ahora = ahora or datetime.now(timezone.utc)
+    entro = miembro.joined_at
+    if entro is not None and (ahora - entro) < timedelta(minutes=ESPERA_MINUTOS):
+        return False
+    return True
+
+
+def faltantes(guild: discord.Guild) -> list[discord.Member]:
+    return [m for m in guild.members if falta_elegir(m)]
+
+
+def _mensaje(guild: discord.Guild) -> discord.Embed:
+    canal = discord.utils.get(guild.text_channels, name=CANAL_EDAD)
+    donde = canal.mention if canal is not None else "el canal de edad"
+    return discord.Embed(
+        title=f"Falta un paso en {guild.name}",
+        description=(
+            f"Todavía no elegiste tu grupo de edad.\n\n"
+            f"Entrá a {donde} y tocá el botón: **mayor de 18** o **menor de 18**.\n"
+            "Es un clic. No se guarda ningún dato, solo queda el rol.\n\n"
+            "**Sean honestos con la edad.** Si mentís y se descubre, hay sanción o ban directo."
+        ),
+        color=0x3498DB,
+    )
+
+
+async def avisar_faltantes(guild: discord.Guild, repetir: bool = False) -> tuple[int, int, list[str]]:
+    """Manda privado a quien no eligio. Devuelve (enviados, fallidos, nombres)."""
+    enviados = 0
+    fallidos = 0
+    nombres = []
+    embed = _mensaje(guild)
+    for miembro in faltantes(guild):
+        if not repetir and ya_avisado(guild.id, miembro.id):
+            continue
+        nombres.append(miembro.display_name)
+        try:
+            await miembro.send(embed=embed)
+            enviados += 1
+        except discord.HTTPException:
+            fallidos += 1
+        marcar_avisado(guild.id, miembro.id)
+    return enviados, fallidos, nombres
