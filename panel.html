@@ -91,7 +91,7 @@
     <div class="tarjeta"><div class="rotulo">Miembros</div><div class="valor" id="miembros">—</div><div class="detalle">sumados</div></div>
     <div class="tarjeta"><div class="rotulo">Comandos</div><div class="valor" id="comandos">—</div><div class="detalle">disponibles</div></div>
     <div class="tarjeta"><div class="rotulo">En línea</div><div class="valor" id="uptime">—</div><div class="detalle" id="desde">—</div></div>
-    <div class="tarjeta"><div class="rotulo">Latencia</div><div class="valor" id="ping">—</div><div class="detalle">a Discord</div></div>
+    <div class="tarjeta"><div class="rotulo">Latencia</div><div class="valor" id="ping">—</div><div class="detalle" id="detalle-ping">a Discord</div></div>
   </section>
 
   <div class="servidores" id="lista-servidores"></div>
@@ -153,6 +153,7 @@ async function estado() {
     $("uptime").textContent = humano(d.encendido);
     $("desde").textContent = d.desde || "—";
     $("ping").textContent = d.ping ? d.ping + " ms" : "—";
+    $("detalle-ping").textContent = "a Discord · bucle " + (d.bucle ?? 0).toFixed(0) + " ms";
     $("actualizado").textContent = "Actualizado " + new Date().toLocaleTimeString("es-AR");
 
     $("lista-servidores").innerHTML = d.servidores.map(s =>
