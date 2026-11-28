@@ -38,6 +38,11 @@ try:
 except ModuleNotFoundError:
     latencia = None
 
+try:
+    import ia as ia_modulo
+except ModuleNotFoundError:
+    ia_modulo = None
+
 _arranque = time.time()
 
 
@@ -111,6 +116,7 @@ async def iniciar(cliente, arbol=None) -> bool:
                 "comandos": len(arbol.get_commands()) if arbol is not None else 0,
                 "ping": int(red * 1000) if red else 0,
                 "bucle": round(latencia.ultimo(), 1) if latencia is not None else 0.0,
+                "ia": ia_modulo.resumen() if ia_modulo is not None else "sin modulo",
                 "encendido": int(time.time() - _arranque),
                 "desde": datetime.fromtimestamp(_arranque).strftime("%d/%m %H:%M"),
             }
