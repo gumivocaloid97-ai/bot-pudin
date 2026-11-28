@@ -1,9 +1,12 @@
 """Auto-actualizacion: baja los .py nuevos desde GitHub."""
 from __future__ import annotations
 
+import logging
 import os
 import ssl
+import subprocess
 import sys
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -23,6 +26,7 @@ ARCHIVOS = tuple(dict.fromkeys((
 ESPERA = 20
 
 CARPETA = Path(__file__).resolve().parent
+log = logging.getLogger("pudin")
 VERSION_LOCAL = CARPETA / "version.txt"
 AGENTE = f"BotPudin (https://github.com/{REPO})"
 
@@ -133,11 +137,25 @@ def reparar() -> bool:
 
 
 def reiniciar() -> None:
+    """Avisa al supervisor y se reemplaza por un bot nuevo.
+
+    Nunca levanta excepcion: si no puede reemplazarse, termina el proceso para
+    que el supervisor lo vuelva a levantar.
+    """
+    try:
+        (CARPETA / "reinicio.txt").write_text(str(int(time.time())), encoding="utf-8")
+    except OSError:
+        pass
+
     try:
         os.execv(sys.executable, [sys.executable, str(CARPETA / "bot.py")])
-    except Exception as error:
-        print(f"[actualizar] cerra y volve a abrir el bot a mano: {error!r}")
-        sys.exit(0)
+    except Exception as error:  # noqa: BLE001
+        log.error("No pude reiniciar con execv: %r", error)
+        try:
+            subprocess.Popen([sys.executable, str(CARPETA / "bot.py")], cwd=str(CARPETA))
+        except Exception:  # noqa: BLE001
+            log.error("Tampoco pude lanzarlo de nuevo")
+        os._exit(1)
 
 
 PAQUETES_URL = f"{CRUDO}/paquetes.zip"
