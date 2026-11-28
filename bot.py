@@ -19,6 +19,14 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
+# Los anuncios publicos son solo para Pudines. La Secta del Vicio no se toca
+# hasta que se pida expresamente.
+GUILD_PUDINES = 1575699459680112721
+
+
+def es_pudines(guild: discord.abc.Snowflake | None) -> bool:
+    return getattr(guild, "id", None) == GUILD_PUDINES
+
 import actualizar
 import musica
 import niveles
@@ -806,6 +814,8 @@ async def anunciar_sancion(
     verbo: str = "ya no está en el servidor",
 ) -> None:
     """Publica la sancion en anuncios para que quede a la vista de todos."""
+    if not es_pudines(guild):
+        return
     canal = _canal(guild, "📢・anuncios")
     if canal is None:
         return
@@ -969,6 +979,8 @@ async def tarea_edad() -> None:
     if edad is None:
         return
     for guild in client.guilds:
+        if not es_pudines(guild):
+            continue
         try:
             llegaron, cerrados = await edad.avisar_faltantes(guild)
         except Exception as error:
