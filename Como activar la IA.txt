@@ -9,23 +9,37 @@ COMO ACTIVAR LA IA DE PUDIN
 
    Gemini -> https://aistudio.google.com/apikey
 
-2) En esta carpeta crea un archivo de texto llamado exactamente:
+2) En la carpeta del bot (la que tiene Pudin.bat y bot.py) crea un archivo
+   de texto llamado:
 
        ia_clave.txt
 
-   Pega la clave adentro y nada mas (una sola linea).
+   Pega la clave adentro y nada mas (una sola linea). Guarda.
 
-3) Reinicia: /reiniciar en Discord, o Pudin.bat.
+3) Ya esta: proba /ia. NO hace falta reiniciar.
 
-Ya esta. Proba con /ia o mencionando al bot en el chat.
+----------------------------------------
+SI SIGUE DICIENDO "sin clave"
+
+- Mira que no se haya llamado "ia_clave.txt.txt". En el Explorador de Windows
+  anda a Ver -> Mostrar -> Extensiones de nombre de archivo.
+  Igual el bot ahora acepta los dos nombres, pero mejor dejarlo bien.
+
+- Tiene que estar en la MISMA carpeta que bot.py, no en la carpeta de arriba.
+
+- El archivo no tiene que estar vacio.
+
+- Escribi /ia en Discord: te manda un mensaje privado diciendo en que carpeta
+  esta buscando y que archivos parecidos encontro.
 
 ----------------------------------------
 OTRO PROVEEDOR (opcional)
 
-Crea ia.txt con una linea por dato:
+Crea ia.txt en la misma carpeta:
 
    proveedor=gemini      (groq, openai, openrouter, gemini, ollama)
    modelo=               (vacio = el de fabrica)
+   clave=gsk_...         (tambien se puede poner la clave aca)
 
 ----------------------------------------
 LIMITES DE FABRICA
