@@ -876,11 +876,26 @@ async def tarea_edad() -> None:
         return
     for guild in client.guilds:
         try:
-            _, _, nombres = await edad.avisar_faltantes(guild)
-            if nombres:
-                log.info("Aviso de edad enviado a: %s", ", ".join(nombres))
+            llegaron, cerrados = await edad.avisar_faltantes(guild)
         except Exception as error:
             log.error("Fallo el aviso de edad en %s: %s", guild.name, error)
+            continue
+        if llegaron:
+            log.info("Aviso de edad enviado a: %s", ", ".join(llegaron))
+        if cerrados:
+            log.warning("Sin privados para avisar de la edad: %s", ", ".join(cerrados))
+            canal = discord.utils.get(guild.text_channels, name="🛡️・staff")
+            if canal is not None:
+                try:
+                    await canal.send(
+                        "**Falta la edad**\n"
+                        + ", ".join(cerrados)
+                        + " no eligieron y tienen los privados cerrados.\n"
+                        "Avisales en `✅・edad`.",
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                except discord.HTTPException:
+                    pass
 
 
 @tarea_edad.before_loop
@@ -1293,10 +1308,14 @@ async def comando_edad_faltantes(
         lineas.append(f"- {miembro.display_name} (entró {cuando})")
     texto = f"**Faltan {len(pendientes)}:**\n" + "\n".join(lineas)
     if avisar:
-        enviados, fallidos, _ = await edad.avisar_faltantes(interaction.guild)
-        texto += f"\n\nLes mandé el aviso a {enviados}."
-        if fallidos:
-            texto += f" {fallidos} tienen los privados cerrados: avisales en el canal."
+        llegaron, cerrados = await edad.avisar_faltantes(interaction.guild, repetir=True)
+        texto += f"\n\nLes mandé el aviso a {len(llegaron)}."
+        if cerrados:
+            texto += (
+                f" {len(cerrados)} tienen los privados cerrados: "
+                + ", ".join(cerrados)
+                + ". Avisales en el canal."
+            )
     await interaction.followup.send(texto[:1900], ephemeral=True)
 
 
